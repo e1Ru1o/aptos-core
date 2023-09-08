@@ -652,6 +652,7 @@ uuid = { version = "1.0.0", features = ["v4", "serde"] }
 walkdir = "2.3.3"
 warp = { version = "0.3.5", features = ["tls"] }
 warp-reverse-proxy = "1.0.0"
+webauthn-rs-core = { git = "https://github.com/aptos-labs/webauthn-rs", branch = "bump-openssl-0.10.56" }
 which = "4.2.5"
 x25519-dalek = { git = "https://github.com/aptos-labs/x25519-dalek" }
 

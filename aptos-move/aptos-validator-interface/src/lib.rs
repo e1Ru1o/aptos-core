@@ -23,6 +23,7 @@ use lru::LruCache;
 use move_binary_format::file_format::CompiledModule;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use aptos_framework::natives::code::PackageMetadata;
 
 // TODO(skedia) Clean up this interfact to remove account specific logic and move to state store
 // key-value interface with fine grained storage project
@@ -45,6 +46,12 @@ pub trait AptosValidatorInterface: Sync {
         start: Version,
         limit: u64,
     ) -> Result<(Vec<Transaction>, Vec<TransactionInfo>)>;
+
+    async fn get_committed_transactions_with_available_src(
+        &self,
+        start: Version,
+        limit: u64,
+    ) -> Result<Vec<(Transaction, Vec<PackageMetadata>)>>;
 
     async fn get_latest_version(&self) -> Result<Version>;
 
@@ -131,7 +138,6 @@ async fn handler_thread<'a>(
     let cache = Arc::new(Mutex::new(
         LruCache::<(StateKey, Version), Option<Vec<u8>>>::new(M),
     ));
-
     loop {
         let (key, version, sender) =
             if let Some((key, version, sender)) = thread_receiver.recv().await {

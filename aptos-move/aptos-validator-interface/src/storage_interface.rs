@@ -17,6 +17,7 @@ use aptos_types::{
     transaction::{Transaction, TransactionInfo, Version},
 };
 use std::{path::Path, sync::Arc};
+use aptos_framework::natives::code::PackageMetadata;
 
 pub struct DBDebuggerInterface(Arc<dyn DbReader>);
 
@@ -77,6 +78,20 @@ impl AptosValidatorInterface for DBDebuggerInterface {
         let txn_infos = txn_info_iter.collect::<Result<Vec<_>>>()?;
         ensure!(txns.len() == txn_infos.len());
         Ok((txns, txn_infos))
+    }
+
+    async fn get_committed_transactions_with_available_src(
+        &self,
+        start: Version,
+        limit: u64,
+    ) -> Result<Vec<(Transaction, Vec<PackageMetadata>)>> {
+        let txn_iter = self.0.get_transaction_iterator(start, limit)?;
+        // let txn_iter = self.0.get_transaction_iterator(start, limit)?;
+        // let txn_info_iter = self.0.get_transaction_info_iterator(start, limit)?;
+        // let txns = txn_iter.collect::<Result<Vec<_>>>()?;
+        // let txn_infos = txn_info_iter.collect::<Result<Vec<_>>>()?;
+        // ensure!(txns.len() == txn_infos.len());
+        Ok(vec![])
     }
 
     async fn get_latest_version(&self) -> Result<Version> {

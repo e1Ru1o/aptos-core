@@ -19,6 +19,7 @@ use aptos_types::{
     },
     vm_status::VMStatus,
 };
+use aptos_framework::{BuildOptions, BuiltPackage};
 use aptos_validator_interface::{
     AptosValidatorInterface, DBDebuggerInterface, DebuggerStateView, RestDebuggerInterface,
 };
@@ -30,7 +31,12 @@ use aptos_vm::{
 use aptos_vm_logging::log_schema::AdapterLogSchema;
 use aptos_vm_types::{change_set::VMChangeSet, output::VMOutput, storage::ChangeSetConfigs};
 use move_binary_format::errors::VMResult;
+use move_core_types::language_storage::{ModuleId, TypeTag};
+use move_vm_types::gas::UnmeteredGasMeter;
+
 use std::{path::Path, sync::Arc};
+use aptos_types::on_chain_config::TimedFeatureOverride;
+use move_core_types::identifier::IdentStr;
 
 pub struct AptosDebugger {
     debugger: Arc<dyn AptosValidatorInterface + Send>,
@@ -116,18 +122,6 @@ impl AptosDebugger {
             .get_committed_transactions(begin, limit)
             .await?;
 
-        while true {
-            println!("begin:{}", begin);
-            let v = self.debugger.get_committed_transactions_with_available_src(begin, limit).await?;
-            if v.len() > 0 {
-                println!("v:{}", v.len());
-                break;
-            } else {
-                begin = begin + 1;
-            }
-        }
-
-
         let mut ret = vec![];
         while limit != 0 {
             println!(
@@ -146,6 +140,52 @@ impl AptosDebugger {
             ret.append(&mut epoch_result);
         }
         Ok(ret)
+    }
+
+    pub async fn dump_past_transactions(
+        &self,
+        begin: Version,
+        limit: u64,
+    ) {
+        let aptos_libs = ["AptosFramework", "MoveStdlib", "AptosStdlib"];
+        let mut cur_version = begin;
+        loop {
+            let v = self
+                .debugger
+                .get_committed_transactions_with_available_src(cur_version.clone(), limit)
+                .await.unwrap_or_default();
+            if !v.is_empty() {
+                assert_eq!(v.len(), 1);
+                // run change_set
+                let exec_entry = |session: &mut SessionExt| -> VMResult<()> {
+                    let txn = &v[0].0;
+                    if let Transaction::UserTransaction(signed_trans) = txn.clone() {
+                        let payload = signed_trans.payload();
+                        if let aptos_types::transaction::TransactionPayload::EntryFunction(entry_function) =
+                        payload {
+                            return session.execute_function_bypass_visibility(entry_function.module(), entry_function.function(),
+                            entry_function.ty_args().to_vec(), entry_function.args().to_vec(), &mut UnmeteredGasMeter).map(|_| ());
+                        }
+                    }
+                    Ok(())
+                };
+                let _change_set = self.run_session_at_version(cur_version.clone(), exec_entry).unwrap();
+                let mut exit = false;
+                for p in &v[0].1 {
+                    println!("package:{}", p.name);
+                    if !aptos_libs.contains(&p.name.as_str()) && !p.name.contains("Aptos") {
+                        exit = true;
+                    }
+                }
+                if exit {
+                    break;
+                } else {
+                    cur_version += 1;
+                }
+            } else {
+                cur_version += 1;
+            }
+        }
     }
 
     fn print_mismatches(

@@ -1,13 +1,7 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{
-    docgen::DocgenOptions,
-    extended_checks,
-    natives::code::{ModuleMetadata, MoveOption, PackageDep, PackageMetadata, UpgradePolicy},
-    zip_metadata, zip_metadata_str, RuntimeModuleMetadataV1, APTOS_METADATA_KEY,
-    APTOS_METADATA_KEY_V1, METADATA_V1_MIN_FILE_FORMAT_VERSION,
-};
+use crate::{docgen::DocgenOptions, extended_checks, natives::code::{ModuleMetadata, MoveOption, PackageDep, PackageMetadata, UpgradePolicy}, zip_metadata, zip_metadata_str, RuntimeModuleMetadataV1, APTOS_METADATA_KEY, APTOS_METADATA_KEY_V1, METADATA_V1_MIN_FILE_FORMAT_VERSION, unzip_metadata_str};
 use anyhow::bail;
 use aptos_types::{account_address::AccountAddress, transaction::EntryABI};
 use clap::Parser;
@@ -32,6 +26,8 @@ use std::{
     io::stderr,
     path::{Path, PathBuf},
 };
+use tempfile::TempDir;
+use move_package::resolution::resolution_graph::ResolutionGraph;
 
 pub const METADATA_FILE_NAME: &str = "package-metadata.bcs";
 pub const UPGRADE_POLICY_CUSTOM_FIELD: &str = "upgrade_policy";
@@ -315,6 +311,30 @@ impl BuiltPackage {
             })
             .collect()
     }
+
+    pub fn unzip_package_metadata(package_meta_data: PackageMetadata) {
+        let package_name = package_meta_data.name;
+        let modules = package_meta_data.modules;
+        let manifest_u8 = package_meta_data.manifest;
+        let deps = package_meta_data.deps;
+        let manifest_str = unzip_metadata_str(&manifest_u8).unwrap();
+        let manifest = parse_source_manifest(parse_move_manifest_string(manifest_str).unwrap()).unwrap();
+        //let temp_path = PathBuf::from(TempDir::new()?.path());
+        let path = PathBuf::from(".");
+        std::fs::create_dir_all(&path).unwrap();
+        let config: BuildConfig = BuildConfig::default();
+        ResolutionGraph::download_dependency_repos(&manifest, &config, &path, &mut std::io::stdout()).unwrap();
+    }
+
+    /*
+    pub fn extract_metadata_and_save(&self) -> anyhow::Result<()> {
+        let data = self.extract_metadata()?;
+        let path = self.package_artifacts_path();
+        std::fs::create_dir_all(&path)?;
+        std::fs::write(path.join(METADATA_FILE_NAME), bcs::to_bytes(&data)?)?;
+        Ok(())
+    }
+     */
 
     /// Extracts metadata, as needed for releasing a package, from the built package.
     pub fn extract_metadata(&self) -> anyhow::Result<PackageMetadata> {

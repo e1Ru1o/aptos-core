@@ -4,6 +4,11 @@
 use crate::AptosValidatorInterface;
 use anyhow::{anyhow, Result};
 use aptos_api_types::{AptosError, AptosErrorCode};
+use aptos_framework::{
+    natives::code::{PackageMetadata, PackageRegistry},
+    unzip_metadata_str,
+};
+use move_core_types::language_storage::ModuleId;
 use aptos_rest_client::{
     error::{AptosErrorResponse, RestError},
     Client,
@@ -14,11 +19,8 @@ use aptos_types::{
     state_store::{state_key::StateKey, state_value::StateValue},
     transaction::{Transaction, TransactionInfo, Version},
 };
-use aptos_framework::{
-    natives::code::{ModuleMetadata, PackageMetadata, PackageRegistry, UpgradePolicy},
-    unzip_metadata_str,
-};
 use std::collections::BTreeMap;
+use async_recursion::async_recursion;
 
 pub struct RestDebuggerInterface(Client);
 
@@ -96,50 +98,106 @@ impl AptosValidatorInterface for RestDebuggerInterface {
         Ok((txns, txn_infos))
     }
 
-    async fn get_committed_transactions_with_available_src(&self,
+    async fn get_committed_transactions_with_available_src(
+        &self,
         start: Version,
         limit: u64,
     ) -> Result<Vec<(Transaction, Vec<PackageMetadata>)>> {
         let mut txns = Vec::with_capacity(limit as usize);
-        //while txns.len() < limit as usize {
-            let temp_txns = self.0
-                .get_transactions_bcs(
-                    Some(start + txns.len() as u64),
-                    Some(limit as u16 - txns.len() as u16),
-                )
-                .await?
-                .into_inner();
-            for txn in temp_txns {
-                if let Transaction::UserTransaction(signed_trans) = txn.transaction.clone() {
-                    let payload = signed_trans.payload();
-                    if let aptos_types::transaction::TransactionPayload::EntryFunction(entry_function) = payload {
-                        let m = entry_function.module();
-                        let addr = m.address();
-                        println!("addr:{}", addr);
-                        let packages =
-                            self.0.get_account_resource_bcs::<PackageRegistry>
-                            (*addr, "0x1::code::PackageRegistry").await?.into_inner().packages;
-                        let mut src_available = true;
-                        for package in &packages {
-                            println!("package name:{}", package.name);
-                            for module_metadata in &package.modules {
-                                if module_metadata.source.is_empty() {
-                                    src_available = false;
-                                    break;
-                                } else {
-                                    println!("module name:{}", module_metadata.name);
-                                    let source = unzip_metadata_str(&module_metadata.source)?;
-                                    //println!("src:{:?}", source);
-                                }
-                            }
-                        }
-                        if src_available {
-                            txns.push((txn.transaction, packages.clone()));
+        let temp_txns = self
+            .0
+            .get_transactions_bcs(
+                Some(start + txns.len() as u64),
+                Some(limit as u16 - txns.len() as u16),
+            )
+            .await?
+            .into_inner();
+
+        let locate_package_with_src = |module: &ModuleId, packages: &[PackageMetadata]|-> Option<PackageMetadata> {
+            for package in packages {
+                for module_metadata in &package.modules {
+                    if module_metadata.name == module.name().as_str() {
+                        if module_metadata.source.is_empty() {
+                            return None;
+                        } else {
+                            return Some(package.clone());
                         }
                     }
                 }
             }
-        //}
+            None
+        };
+
+        #[async_recursion]
+        async fn retrieve_available_src(client: &Client, package: &PackageMetadata, data: &mut Vec<PackageMetadata>) -> Result<()> {
+            if package.modules.is_empty() {
+                return Err(anyhow::anyhow!("no modules"));
+            }
+            if package.modules[0].source.is_empty() {
+                return Err(anyhow::anyhow!("no src available"));
+            } else {
+                if !data.contains(&package) {
+                    data.push(package.clone());
+                    retrieve_dep_packages_with_src(client, package, data).await
+                } else {
+                    return Ok(());
+                }
+            }
+        };
+
+        #[async_recursion]
+        async fn retrieve_dep_packages_with_src(client: &Client, root_package: &PackageMetadata, data: &mut Vec<PackageMetadata>)
+            -> Result<()> {
+                for dep in &root_package.deps {
+                    println!("dep:{}", dep.package_name);
+                        let packages = client
+                            .get_account_resource_bcs::<PackageRegistry>(
+                                dep.account,
+                                "0x1::code::PackageRegistry",
+                            )
+                            .await?
+                            .into_inner()
+                            .packages;
+                        for package in &packages {
+                            retrieve_available_src(client, package, data).await?;
+                        }
+                }
+                Ok(())
+        };
+
+        for txn in temp_txns {
+            if let Transaction::UserTransaction(signed_trans) = txn.transaction.clone() {
+                let payload = signed_trans.payload();
+                if let aptos_types::transaction::TransactionPayload::EntryFunction(entry_function) =
+                    payload
+                {
+                    if entry_function.function().as_str() == "publish_package_txn" {
+                        println!("skip publish txn");
+                        continue;
+                    }
+                    let m = entry_function.module();
+                    let addr = m.address();
+                    let packages = self
+                        .0
+                        .get_account_resource_bcs::<PackageRegistry>(
+                            *addr,
+                            "0x1::code::PackageRegistry",
+                        )
+                        .await?
+                        .into_inner()
+                        .packages;
+                    // println!("get entry module:{}", m.name().as_str());
+                    let target_package_opt = locate_package_with_src(m, &packages);
+                    if let Some(target_package) = target_package_opt {
+                        // println!("get package:{}", target_package.name);
+                        let mut res = vec![target_package.clone()];
+                        if let Ok(()) = retrieve_dep_packages_with_src(&self.0, &target_package, &mut res).await {
+                            txns.push((txn.transaction, res));
+                        }
+                    }
+                }
+            }
+        }
         return Ok(txns);
     }
 

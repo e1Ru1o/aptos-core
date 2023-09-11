@@ -44,12 +44,14 @@ async fn main() -> Result<()> {
         Target::DB { path } => AptosDebugger::db(path)?,
     };
 
-    println!(
-        "{:#?}",
-        debugger
-            .execute_past_transactions(args.begin_version, args.limit)
-            .await?
-    );
+    debugger
+        .dump_past_transactions(args.begin_version, args.limit).await;
+    // println!(
+    //     "{:#?}",
+    //     debugger
+    //         .execute_past_transactions(args.begin_version, args.limit)
+    //         .await?
+    // );
 
     Ok(())
 }

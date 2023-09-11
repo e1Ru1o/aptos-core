@@ -1096,6 +1096,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aptos-crypto",
+ "aptos-framework",
  "aptos-gas-meter",
  "aptos-gas-profiling",
  "aptos-gas-schedule",
@@ -1119,6 +1120,7 @@ dependencies = [
  "move-resource-viewer",
  "move-vm-runtime",
  "move-vm-test-utils",
+ "move-vm-types",
  "regex",
  "tokio",
  "url",
@@ -3781,11 +3783,13 @@ dependencies = [
  "aptos-state-view",
  "aptos-storage-interface",
  "aptos-types",
+ "async-recursion",
  "async-trait",
  "bcs 0.1.4",
  "itertools",
  "lru 0.7.8",
  "move-binary-format",
+ "move-core-types",
  "tokio",
 ]
 
@@ -4341,6 +4345,17 @@ dependencies = [
  "once_cell",
  "signal-hook",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "async-recursion"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fd55a5ba1179988837d24ab4c7cc8ed6efdeff578ede0416b4225a5fca35bd0"
+dependencies = [
+ "proc-macro2 1.0.64",
+ "quote 1.0.29",
+ "syn 2.0.25",
 ]
 
 [[package]]

@@ -27,4 +27,6 @@ bcs = { workspace = true }
 itertools = { workspace = true }
 lru = { workspace = true }
 move-binary-format = { workspace = true }
+move-core-types = { workspace = true }
 tokio = { workspace = true }
+async-recursion = { workspace = true }

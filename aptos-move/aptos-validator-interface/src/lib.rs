@@ -5,6 +5,7 @@
 mod rest_interface;
 mod storage_interface;
 
+use std::collections::HashMap;
 pub use crate::{rest_interface::RestDebuggerInterface, storage_interface::DBDebuggerInterface};
 use anyhow::{anyhow, Result};
 use aptos_framework::natives::code::PackageMetadata;
@@ -51,7 +52,7 @@ pub trait AptosValidatorInterface: Sync {
         &self,
         start: Version,
         limit: u64,
-    ) -> Result<Vec<(Transaction, Vec<PackageMetadata>)>>;
+    ) -> Result<Vec<(Transaction, (String, u64), HashMap<(String, u64), PackageMetadata>)>>;
 
     async fn get_latest_version(&self) -> Result<Version>;
 

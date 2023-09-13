@@ -35,6 +35,9 @@ use move_core_types::language_storage::{ModuleId, TypeTag};
 use move_vm_types::gas::UnmeteredGasMeter;
 
 use std::{path::Path, sync::Arc};
+use std::fs::File;
+use std::path::PathBuf;
+use std::io::Write;
 use aptos_types::on_chain_config::TimedFeatureOverride;
 use move_core_types::identifier::IdentStr;
 
@@ -146,46 +149,58 @@ impl AptosDebugger {
         &self,
         begin: Version,
         limit: u64,
-    ) {
+        dump_file: &mut File,
+    ) -> Version {
         let aptos_libs = ["AptosFramework", "MoveStdlib", "AptosStdlib"];
         let mut cur_version = begin;
-        loop {
+        // if not exists, create the folder aptos-commoms which will store aptos-framework, aptos-stdlib and move-stdlib
+        // aptos-framework-upgrade-num
+        let mut aptos_commons_path = PathBuf::from(".").join("aptos-commoms");
+        if !aptos_commons_path.exists() {
+            std::fs::create_dir_all(aptos_commons_path.path())?;
+        }
+        let mut count = 1;
+        while count < limit {
             let v = self
                 .debugger
-                .get_committed_transactions_with_available_src(cur_version.clone(), limit)
+                .get_committed_transactions_with_available_src(cur_version.clone(), 1)
                 .await.unwrap_or_default();
             if !v.is_empty() {
                 assert_eq!(v.len(), 1);
+                // writeln!(dump_file, "{}", cur_version);
                 // run change_set
-                let exec_entry = |session: &mut SessionExt| -> VMResult<()> {
-                    let txn = &v[0].0;
-                    if let Transaction::UserTransaction(signed_trans) = txn.clone() {
-                        let payload = signed_trans.payload();
-                        if let aptos_types::transaction::TransactionPayload::EntryFunction(entry_function) =
-                        payload {
-                            return session.execute_function_bypass_visibility(entry_function.module(), entry_function.function(),
-                            entry_function.ty_args().to_vec(), entry_function.args().to_vec(), &mut UnmeteredGasMeter).map(|_| ());
-                        }
-                    }
-                    Ok(())
-                };
-                let _change_set = self.run_session_at_version(cur_version.clone(), exec_entry).unwrap();
-                let mut exit = false;
+                // let exec_entry = |session: &mut SessionExt| -> VMResult<()> {
+                //     let txn = &v[0].0;
+                //     if let Transaction::UserTransaction(signed_trans) = txn.clone() {
+                //         let payload = signed_trans.payload();
+                //         if let aptos_types::transaction::TransactionPayload::EntryFunction(entry_function) =
+                //         payload {
+                //             return session.execute_function_bypass_visibility(entry_function.module(), entry_function.function(),
+                //             entry_function.ty_args().to_vec(), entry_function.args().to_vec(), &mut UnmeteredGasMeter).map(|_| ());
+                //         }
+                //     }
+                //     Ok(())
+                // };
+                // let _change_set = self.run_session_at_version(cur_version.clone(), exec_entry).unwrap();
+                // create a new folder to store the source code
+                // unzip_package for the root package
+                // during execution
                 for p in &v[0].1 {
                     println!("package:{}", p.name);
+                    // If
+                    BuiltPackage::unzip_package_metadata(p);
                     if !aptos_libs.contains(&p.name.as_str()) && !p.name.contains("Aptos") {
                         exit = true;
+                        println!("done handling package p:{}", p.name);
                     }
                 }
-                if exit {
-                    break;
-                } else {
-                    cur_version += 1;
-                }
+                count += 1;
+                cur_version += 1;
             } else {
                 cur_version += 1;
             }
         }
+        cur_version
     }
 
     fn print_mismatches(

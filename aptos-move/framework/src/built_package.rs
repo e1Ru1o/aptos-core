@@ -26,8 +26,11 @@ use std::{
     io::stderr,
     path::{Path, PathBuf},
 };
+use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
 use tempfile::TempDir;
 use move_package::resolution::resolution_graph::ResolutionGraph;
+use move_package::source_package::parsed_manifest::Dependency;
 
 pub const METADATA_FILE_NAME: &str = "package-metadata.bcs";
 pub const UPGRADE_POLICY_CUSTOM_FIELD: &str = "upgrade_policy";
@@ -312,18 +315,122 @@ impl BuiltPackage {
             .collect()
     }
 
-    pub fn unzip_package_metadata(package_meta_data: PackageMetadata) {
-        let package_name = package_meta_data.name;
-        let modules = package_meta_data.modules;
-        let manifest_u8 = package_meta_data.manifest;
-        let deps = package_meta_data.deps;
+    // step 2: analyzing the manifest file, handle each dependency using depth-first traversal
+    // case 1: dependency on aptos related libraries:
+    //
+    pub fn unzip_and_dump_source_from_package_metadata
+    (root_package_name: String, root_account_address: AccountAddress, upgrade_num: u64, dep_map: &HashMap<(AccountAddress, String), PackageMetadata>) {
+
+        let root_package_dir = PathBuf::from(".")
+            .join(format!("{}.{}.{}", root_package_name, root_account_address, upgrade_num));
+        if root_package_dir.exists() {
+            return;
+        }
+        std::fs::create_dir_all(root_package_dir.path())?;
+        let root_package_metadata = dep_map.get(&(root_account_address, root_package_name)).unwrap();
+        // step 1: unzip and save the source code into src into corresponding folder: txn_version/package-name
+        let sources_dir = root_package_dir.join("sources");
+        std::fs::create_dir_all(sources_dir.path())?;
+        let modules = root_package_metadata.modules.clone();
+        for module in modules {
+            let mut module_path = sources_dir.join(format!("{}.move", module.name));
+            let mut module_src_file = if !module_path.exists() {
+                File::create(module_path)
+                    .expect("Error encountered while creating file!")
+            } else {
+                OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .open(path)
+                    .unwrap()
+            };
+            let source_str = unzip_metadata_str(&module.source).unwrap();
+            std::fs::write(module_src_file, source_str).unwrap();
+        }
+
+        // step 2: unzip, parse the manifest file
+        let manifest_u8 = root_package_metadata.manifest.clone();
         let manifest_str = unzip_metadata_str(&manifest_u8).unwrap();
-        let manifest = parse_source_manifest(parse_move_manifest_string(manifest_str).unwrap()).unwrap();
+        let mut manifest = parse_source_manifest(parse_move_manifest_string(manifest_str.clone()).unwrap()).unwrap();
+
+        let fix_manifest = |dep: &mut Dependency, local_str: &str| {
+            dep.git_info = None;
+            dep.subst = None;
+            dep.version = None;
+            dep.digest = None;
+            dep.node_info = None;
+            dep.local = PathBuf::from(local_str);
+        };
+
+        // step 3:
+        let manifest_deps = &mut manifest.dependencies;
+        for manifest_dep in manifest_deps {
+            let manifest_dep_name = manifest_dep.0.as_str();
+            let dep = manifest_dep.1;
+            for pack_dep in root_package_metadata.deps {
+                let pack_dep_address = pack_dep.account;
+                let pack_dep_name = pack_dep.package_name;
+                if pack_dep_name == manifest_dep_name {
+                    // format!("{}.{}.{}", root_package_name, root_account_address, upgrade_num)
+                    let dep_metadata_opt = dep_map.get(&(pack_dep_address, pack_dep_name));
+                    if let Some(dep_metadata) = dep_metadata_opt {
+                        let pack_dep_upgrade_num = dep_metadata.clone().upgrade_number;
+                        let path_str = format!("{}.{}.{}", pack_dep_name, pack_dep_address, pack_dep_upgrade_num);
+                        fix_manifest(dep, &path_str);
+                        // unzip_and_dump_source_from_package_metadata();
+                    }
+                    break;
+                }
+            }
+        }
+
+        // let package_name = root_package_metadata.name.clone();
+        // let modules = root_package_metadata.modules.clone();
+        // let manifest_u8 = root_package_metadata.manifest.clone();
+        // let deps = root_package_metadata.deps.clone();
+        // let manifest_str = unzip_metadata_str(&manifest_u8).unwrap();
+        // println!("dependency of package:{} will be downloaded", package_name);
+        // println!("manifest:{}", manifest_str);
+        // let mut manifest = parse_source_manifest(parse_move_manifest_string(manifest_str.clone()).unwrap()).unwrap();
+        // //let temp_path = PathBuf::from(TempDir::new()?.path());
+        // let mut path = PathBuf::from(".").join(package_name.clone());
+        // std::fs::create_dir_all(&path).unwrap();
+        //
+        // // write move.toml
+        // println!("path:{:?}", path);
+        // let move_toml_path = PathBuf::from(path.clone()).join("Move.toml");
+        // println!("toml path:{:?}", move_toml_path);
+        // std::fs::write(move_toml_path, manifest_str).unwrap();
+        // let config: BuildConfig = BuildConfig::default();
+        // if !package_name.contains("Aptos") {
+        //     ResolutionGraph::download_dependency_repos(&manifest, &config, &path, &mut std::io::stdout()).unwrap();
+        // }
+        //ResolutionGraph::download_dependency_repos(&manifest, &config, &path, &mut std::io::stdout()).unwrap();
+    }
+
+    pub fn unzip_package_metadata(package_meta_data: &PackageMetadata) {
+        let package_name = package_meta_data.name.clone();
+        let modules = package_meta_data.modules.clone();
+        let manifest_u8 = package_meta_data.manifest.clone();
+        let deps = package_meta_data.deps.clone();
+        let manifest_str = unzip_metadata_str(&manifest_u8).unwrap();
+        println!("dependency of package:{} will be downloaded", package_name);
+        println!("manifest:{}", manifest_str);
+        let mut manifest = parse_source_manifest(parse_move_manifest_string(manifest_str.clone()).unwrap()).unwrap();
         //let temp_path = PathBuf::from(TempDir::new()?.path());
-        let path = PathBuf::from(".");
+        let mut path = PathBuf::from(".").join(package_name.clone());
         std::fs::create_dir_all(&path).unwrap();
+
+        // write move.toml
+        println!("path:{:?}", path);
+        let move_toml_path = PathBuf::from(path.clone()).join("Move.toml");
+        println!("toml path:{:?}", move_toml_path);
+        std::fs::write(move_toml_path, manifest_str).unwrap();
         let config: BuildConfig = BuildConfig::default();
-        ResolutionGraph::download_dependency_repos(&manifest, &config, &path, &mut std::io::stdout()).unwrap();
+        if !package_name.contains("Aptos") {
+            ResolutionGraph::download_dependency_repos(&manifest, &config, &path, &mut std::io::stdout()).unwrap();
+        }
+        //ResolutionGraph::download_dependency_repos(&manifest, &config, &path, &mut std::io::stdout()).unwrap();
     }
 
     /*

@@ -18,6 +18,7 @@ use aptos_types::{
     transaction::{Transaction, TransactionInfo, Version},
 };
 use std::{path::Path, sync::Arc};
+use std::collections::HashMap;
 
 pub struct DBDebuggerInterface(Arc<dyn DbReader>);
 
@@ -84,7 +85,7 @@ impl AptosValidatorInterface for DBDebuggerInterface {
         &self,
         _start: Version,
         _limit: u64,
-    ) -> Result<Vec<(Transaction, Vec<PackageMetadata>)>> {
+    ) -> Result<Vec<(Transaction, (String, u64), HashMap<(String, u64), PackageMetadata>)>> {
         unimplemented!();
     }
 

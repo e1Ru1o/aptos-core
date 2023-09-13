@@ -509,8 +509,10 @@ impl ResolvingGraph {
         mut root_path: PathBuf,
     ) -> Result<(SourceManifest, PathBuf)> {
         root_path.push(&dep.local);
+        // println!("new path:{:?}", root_path.join(SourcePackageLayout::Manifest.path()));
         match fs::read_to_string(root_path.join(SourcePackageLayout::Manifest.path())) {
             Ok(contents) => {
+                println!("contents:{}", contents);
                 let source_package: SourceManifest =
                     parse_move_manifest_string(contents).and_then(parse_source_manifest)?;
                 Ok((source_package, root_path))
@@ -537,8 +539,13 @@ impl ResolvingGraph {
             empty_deps = Dependencies::new();
             &empty_deps
         };
-
+        println!("dep size:{}", manifest.dependencies.len());
+        println!("additional size:{}", additional_deps.len());
+        for (dep_name, dep) in manifest.dependencies.iter() {
+            println!("1dep name:{}", dep_name.as_str());
+        }
         for (dep_name, dep) in manifest.dependencies.iter().chain(additional_deps.iter()) {
+            println!("root_path:{:?}, dep_name:{:?}, dep:{:?}", root_path, dep_name, dep);
             Self::download_and_update_if_remote(
                 *dep_name,
                 dep,
@@ -546,11 +553,11 @@ impl ResolvingGraph {
                 writer,
             )?;
 
-            let (dep_manifest, _) =
+            let (dep_manifest, new_path) =
                 Self::parse_package_manifest(dep, dep_name, root_path.to_path_buf())
                     .with_context(|| format!("While processing dependency '{}'", *dep_name))?;
             // download dependencies of dependencies
-            Self::download_dependency_repos(&dep_manifest, build_options, root_path, writer)?;
+            Self::download_dependency_repos(&dep_manifest, build_options, new_path.as_path(), writer)?;
         }
         Ok(())
     }
@@ -565,7 +572,7 @@ impl ResolvingGraph {
             let git_url = git_info.git_url.as_str();
             let git_rev = git_info.git_rev.as_str();
             let git_path = &git_info.download_to.display().to_string();
-
+            println!("git info:{:?}", git_info.download_to);
             // If there is no cached dependency, download it
             if !git_info.download_to.exists() {
                 writeln!(

@@ -1,6 +1,7 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fs::{File, OpenOptions};
 use anyhow::Result;
 use aptos_debugger::AptosDebugger;
 use aptos_rest_client::Client;
@@ -44,8 +45,19 @@ async fn main() -> Result<()> {
         Target::DB { path } => AptosDebugger::db(path)?,
     };
 
+    let mut path = PathBuf::from(".").join("dumped_txn_versions.txt");
+    let mut file = if !path.exists() {
+        File::create(path)
+            .expect("Error encountered while creating file!")
+    } else {
+        OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(path)
+            .unwrap()
+    };
     debugger
-        .dump_past_transactions(args.begin_version, args.limit).await;
+        .dump_past_transactions(args.begin_version, args.limit, &mut file).await;
     // println!(
     //     "{:#?}",
     //     debugger

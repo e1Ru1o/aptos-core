@@ -19,7 +19,8 @@ use aptos_types::{
     state_store::{state_key::StateKey, state_value::StateValue},
     transaction::{Transaction, TransactionInfo, Version},
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::hash::Hash;
 use async_recursion::async_recursion;
 
 pub struct RestDebuggerInterface(Client);
@@ -102,7 +103,7 @@ impl AptosValidatorInterface for RestDebuggerInterface {
         &self,
         start: Version,
         limit: u64,
-    ) -> Result<Vec<(Transaction, Vec<PackageMetadata>)>> {
+    ) -> Result<Vec<(Transaction, (String, u64), HashMap<(String, u64), PackageMetadata>)>> {
         let mut txns = Vec::with_capacity(limit as usize);
         let temp_txns = self
             .0
@@ -117,7 +118,8 @@ impl AptosValidatorInterface for RestDebuggerInterface {
             for package in packages {
                 for module_metadata in &package.modules {
                     if module_metadata.name == module.name().as_str() {
-                        if module_metadata.source.is_empty() {
+                        // If the source is not available or the upgrade policy is not back-compaitible, return None
+                        if module_metadata.source.is_empty() || package.upgrade_policy.policy == 0 {
                             return None;
                         } else {
                             return Some(package.clone());
@@ -129,15 +131,17 @@ impl AptosValidatorInterface for RestDebuggerInterface {
         };
 
         #[async_recursion]
-        async fn retrieve_available_src(client: &Client, package: &PackageMetadata, data: &mut Vec<PackageMetadata>) -> Result<()> {
+        async fn retrieve_available_src(client: &Client, package: &PackageMetadata, account_address: AccountAddress, data: &mut HashMap<(AccountAddress, String), PackageMetadata>) -> Result<()> {
             if package.modules.is_empty() {
                 return Err(anyhow::anyhow!("no modules"));
             }
             if package.modules[0].source.is_empty() {
                 return Err(anyhow::anyhow!("no src available"));
             } else {
-                if !data.contains(&package) {
-                    data.push(package.clone());
+                let package_name = package.clone().name;
+                let package_upgrade_number = package.clone().upgrade_number;
+                if !data.contains_key(&(account_address, package_name)) {
+                    data.insert((account_address.clone(), package_name.clone()), package.clone());
                     retrieve_dep_packages_with_src(client, package, data).await
                 } else {
                     return Ok(());
@@ -146,23 +150,23 @@ impl AptosValidatorInterface for RestDebuggerInterface {
         };
 
         #[async_recursion]
-        async fn retrieve_dep_packages_with_src(client: &Client, root_package: &PackageMetadata, data: &mut Vec<PackageMetadata>)
+        async fn retrieve_dep_packages_with_src(client: &Client, root_package: &PackageMetadata, data: &mut HashMap<(AccountAddress, String), PackageMetadata>)
             -> Result<()> {
-                for dep in &root_package.deps {
-                    println!("dep:{}", dep.package_name);
-                        let packages = client
-                            .get_account_resource_bcs::<PackageRegistry>(
-                                dep.account,
-                                "0x1::code::PackageRegistry",
-                            )
-                            .await?
-                            .into_inner()
-                            .packages;
-                        for package in &packages {
-                            retrieve_available_src(client, package, data).await?;
-                        }
+            for dep in &root_package.deps {
+                println!("dep:{}", dep.package_name);
+                let packages = client
+                    .get_account_resource_bcs::<PackageRegistry>(
+                        dep.account,
+                        "0x1::code::PackageRegistry",
+                    )
+                    .await?
+                    .into_inner()
+                    .packages;
+                for package in &packages {
+                    retrieve_available_src(client, package, dep.account, data).await?;
                 }
-                Ok(())
+            }
+            Ok(())
         };
 
         for txn in temp_txns {
@@ -180,7 +184,7 @@ impl AptosValidatorInterface for RestDebuggerInterface {
                     let packages = self
                         .0
                         .get_account_resource_bcs::<PackageRegistry>(
-                            *addr,
+                            addr.clone(),
                             "0x1::code::PackageRegistry",
                         )
                         .await?
@@ -189,10 +193,12 @@ impl AptosValidatorInterface for RestDebuggerInterface {
                     // println!("get entry module:{}", m.name().as_str());
                     let target_package_opt = locate_package_with_src(m, &packages);
                     if let Some(target_package) = target_package_opt {
+                        // target_package is the root package
                         // println!("get package:{}", target_package.name);
-                        let mut res = vec![target_package.clone()];
-                        if let Ok(()) = retrieve_dep_packages_with_src(&self.0, &target_package, &mut res).await {
-                            txns.push((txn.transaction, res));
+                        let mut map = HashMap::new();
+                        if let Ok(()) = retrieve_dep_packages_with_src(&self.0, &target_package, &mut map).await {
+                            map.insert((addr.clone(), target_package.clone().name), target_package.clone());
+                            txns.push((txn.transaction, (*addr, target_package.name), map));
                         }
                     }
                 }

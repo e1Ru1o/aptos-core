@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use tempfile::TempDir;
 use move_package::resolution::resolution_graph::ResolutionGraph;
-use move_package::source_package::parsed_manifest::Dependency;
+use move_package::source_package::parsed_manifest::{Dependency, SourceManifest};
 
 pub const METADATA_FILE_NAME: &str = "package-metadata.bcs";
 pub const UPGRADE_POLICY_CUSTOM_FIELD: &str = "upgrade_policy";
@@ -319,33 +319,35 @@ impl BuiltPackage {
     // case 1: dependency on aptos related libraries:
     //
     pub fn unzip_and_dump_source_from_package_metadata
-    (root_package_name: String, root_account_address: AccountAddress, upgrade_num: u64, dep_map: &HashMap<(AccountAddress, String), PackageMetadata>) {
+    (root_package_name: String, root_account_address: AccountAddress, upgrade_num: u64, dep_map: &HashMap<(AccountAddress, String), PackageMetadata>) ->
+    anyhow::Result<()> {
 
         let root_package_dir = PathBuf::from(".")
             .join(format!("{}.{}.{}", root_package_name, root_account_address, upgrade_num));
         if root_package_dir.exists() {
-            return;
+            return Ok(());
         }
-        std::fs::create_dir_all(root_package_dir.path())?;
+        std::fs::create_dir_all(root_package_dir.as_path());
         let root_package_metadata = dep_map.get(&(root_account_address, root_package_name)).unwrap();
         // step 1: unzip and save the source code into src into corresponding folder: txn_version/package-name
         let sources_dir = root_package_dir.join("sources");
-        std::fs::create_dir_all(sources_dir.path())?;
+        std::fs::create_dir_all(sources_dir.as_path())?;
         let modules = root_package_metadata.modules.clone();
         for module in modules {
-            let mut module_path = sources_dir.join(format!("{}.move", module.name));
-            let mut module_src_file = if !module_path.exists() {
-                File::create(module_path)
-                    .expect("Error encountered while creating file!")
-            } else {
-                OpenOptions::new()
-                    .write(true)
-                    .append(true)
-                    .open(path)
-                    .unwrap()
+            let module_path = sources_dir.join(format!("{}.move", module.name));
+            if !module_path.exists() {
+                File::create(module_path.clone())
+                    .expect("Error encountered while creating file!");
             };
+            // } else {
+            //     OpenOptions::new()
+            //         .write(true)
+            //         .append(true)
+            //         .open(module_path)
+            //         .unwrap()
+            // };
             let source_str = unzip_metadata_str(&module.source).unwrap();
-            std::fs::write(module_src_file, source_str).unwrap();
+            std::fs::write(&module_path.clone(), source_str).unwrap();
         }
 
         // step 2: unzip, parse the manifest file
@@ -367,22 +369,32 @@ impl BuiltPackage {
         for manifest_dep in manifest_deps {
             let manifest_dep_name = manifest_dep.0.as_str();
             let dep = manifest_dep.1;
-            for pack_dep in root_package_metadata.deps {
+            for pack_dep in &root_package_metadata.deps {
                 let pack_dep_address = pack_dep.account;
-                let pack_dep_name = pack_dep.package_name;
+                let pack_dep_name = pack_dep.clone().package_name;
                 if pack_dep_name == manifest_dep_name {
                     // format!("{}.{}.{}", root_package_name, root_account_address, upgrade_num)
-                    let dep_metadata_opt = dep_map.get(&(pack_dep_address, pack_dep_name));
+                    let dep_metadata_opt = dep_map.get(&(pack_dep_address, pack_dep_name.clone()));
                     if let Some(dep_metadata) = dep_metadata_opt {
                         let pack_dep_upgrade_num = dep_metadata.clone().upgrade_number;
                         let path_str = format!("{}.{}.{}", pack_dep_name, pack_dep_address, pack_dep_upgrade_num);
                         fix_manifest(dep, &path_str);
-                        // unzip_and_dump_source_from_package_metadata();
+                        Self::unzip_and_dump_source_from_package_metadata(pack_dep_name.clone(), pack_dep_address,
+                        dep_metadata.clone().upgrade_number, dep_map)?;
                     }
                     break;
                 }
             }
         }
+
+        // Dump the fixed manifest file
+        println!("manifest:{:?}", manifest);
+        let toml_path = root_package_dir.join("Move.toml");
+        //let _ = File::create(toml_path)
+        //        .expect("Error encountered while creating file!");
+        //std::fs::write(&toml_path, manifest).unwrap();
+
+        Ok(())
 
         // let package_name = root_package_metadata.name.clone();
         // let modules = root_package_metadata.modules.clone();

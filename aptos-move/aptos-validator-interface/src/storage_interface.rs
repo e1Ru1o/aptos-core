@@ -85,7 +85,7 @@ impl AptosValidatorInterface for DBDebuggerInterface {
         &self,
         _start: Version,
         _limit: u64,
-    ) -> Result<Vec<(Transaction, (String, u64), HashMap<(String, u64), PackageMetadata>)>> {
+    ) -> Result<Vec<(Transaction, (AccountAddress, String), HashMap<(AccountAddress, String), PackageMetadata>)>> {
         unimplemented!();
     }
 

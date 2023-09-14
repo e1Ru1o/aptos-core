@@ -157,7 +157,7 @@ impl AptosDebugger {
         // aptos-framework-upgrade-num
         let mut aptos_commons_path = PathBuf::from(".").join("aptos-commoms");
         if !aptos_commons_path.exists() {
-            std::fs::create_dir_all(aptos_commons_path.path())?;
+            std::fs::create_dir_all(aptos_commons_path.as_path()).unwrap();
         }
         let mut count = 1;
         while count < limit {
@@ -185,15 +185,17 @@ impl AptosDebugger {
                 // create a new folder to store the source code
                 // unzip_package for the root package
                 // during execution
-                for p in &v[0].1 {
-                    println!("package:{}", p.name);
+                // for p in &v[0].1 {
+                    // println!("package:{}", p.name);
                     // If
-                    BuiltPackage::unzip_package_metadata(p);
-                    if !aptos_libs.contains(&p.name.as_str()) && !p.name.contains("Aptos") {
-                        exit = true;
-                        println!("done handling package p:{}", p.name);
-                    }
-                }
+                    // pub fn unzip_and_dump_source_from_package_metadata
+                    // (root_package_name: String, root_account_address: AccountAddress, upgrade_num: u64, dep_map: &HashMap<(AccountAddress, String), PackageMetadata>)
+                    // BuiltPackage::unzip_package_metadata(p);
+                    // if !aptos_libs.contains(&p.name.as_str()) && !p.name.contains("Aptos") {
+                    //     exit = true;
+                    //     println!("done handling package p:{}", p.name);
+                    // }
+                // }
                 count += 1;
                 cur_version += 1;
             } else {

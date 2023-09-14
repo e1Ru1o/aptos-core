@@ -103,7 +103,7 @@ impl AptosValidatorInterface for RestDebuggerInterface {
         &self,
         start: Version,
         limit: u64,
-    ) -> Result<Vec<(Transaction, (String, u64), HashMap<(String, u64), PackageMetadata>)>> {
+    ) -> Result<Vec<(Transaction, (AccountAddress, String), HashMap<(AccountAddress, String), PackageMetadata>)>> {
         let mut txns = Vec::with_capacity(limit as usize);
         let temp_txns = self
             .0
@@ -139,8 +139,7 @@ impl AptosValidatorInterface for RestDebuggerInterface {
                 return Err(anyhow::anyhow!("no src available"));
             } else {
                 let package_name = package.clone().name;
-                let package_upgrade_number = package.clone().upgrade_number;
-                if !data.contains_key(&(account_address, package_name)) {
+                if !data.contains_key(&(account_address, package_name.clone())) {
                     data.insert((account_address.clone(), package_name.clone()), package.clone());
                     retrieve_dep_packages_with_src(client, package, data).await
                 } else {

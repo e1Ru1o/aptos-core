@@ -50,9 +50,9 @@ pub trait AptosValidatorInterface: Sync {
 
     async fn get_committed_transactions_with_available_src(
         &self,
-        start: Version,
-        limit: u64,
-    ) -> Result<Vec<(Transaction, (String, u64), HashMap<(String, u64), PackageMetadata>)>>;
+        _start: Version,
+        _limit: u64,
+    ) -> Result<Vec<(Transaction, (AccountAddress, String), HashMap<(AccountAddress, String), PackageMetadata>)>>;
 
     async fn get_latest_version(&self) -> Result<Version>;
 

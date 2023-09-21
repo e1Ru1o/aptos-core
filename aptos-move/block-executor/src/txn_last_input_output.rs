@@ -4,7 +4,7 @@
 use crate::{
     captured_reads::CapturedReads,
     errors::Error,
-    task::{ExecutionStatus, Transaction, TransactionOutput},
+    task::{CategorizeError, ErrorCategory, ExecutionStatus, Transaction, TransactionOutput},
 };
 use anyhow::anyhow;
 use aptos_mvhashmap::types::TxnIndex;
@@ -56,7 +56,7 @@ pub struct TxnLastInputOutput<T: Transaction, O: TransactionOutput<Txn = T>, E: 
     module_read_write_intersection: AtomicBool,
 }
 
-impl<T: Transaction, O: TransactionOutput<Txn = T>, E: Debug + Send + Clone>
+impl<T: Transaction, O: TransactionOutput<Txn = T>, E: Debug + Send + Clone + CategorizeError>
     TxnLastInputOutput<T, O, E>
 {
     pub fn new(num_txns: TxnIndex) -> Self {
@@ -250,6 +250,20 @@ impl<T: Transaction, O: TransactionOutput<Txn = T>, E: Debug + Send + Clone>
                 },
             },
         )
+    }
+
+    pub(crate) fn output_category(&self, txn_idx: TxnIndex) -> Option<ErrorCategory> {
+        self.outputs[txn_idx as usize]
+            .load()
+            .as_ref()
+            .and_then(|txn_output| match txn_output.output_status() {
+                ExecutionStatus::Success(_) => None,
+                ExecutionStatus::SkipRest(_) => None,
+                ExecutionStatus::Abort(Error::UserError(err)) => Some(err.categorize()),
+                ExecutionStatus::Abort(Error::ModulePathReadWrite) => {
+                    Some(ErrorCategory::ValidError)
+                },
+            })
     }
 
     // Called when a transaction is committed to record WriteOps for materialized aggregator values

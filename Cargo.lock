@@ -1648,6 +1648,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tiny-keccak",
+ "toml 0.7.4",
 ]
 
 [[package]]

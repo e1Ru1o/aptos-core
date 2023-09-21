@@ -152,7 +152,6 @@ impl AptosValidatorInterface for RestDebuggerInterface {
         async fn retrieve_dep_packages_with_src(client: &Client, root_package: &PackageMetadata, data: &mut HashMap<(AccountAddress, String), PackageMetadata>)
             -> Result<()> {
             for dep in &root_package.deps {
-                println!("dep:{}", dep.package_name);
                 let packages = client
                     .get_account_resource_bcs::<PackageRegistry>(
                         dep.account,

@@ -151,7 +151,7 @@ impl AptosDebugger {
         limit: u64,
         dump_file: &mut File,
     ) -> Version {
-        let aptos_libs = ["AptosFramework", "MoveStdlib", "AptosStdlib"];
+        let aptos_libs = ["AptosFramework", "MoveStdlib", "AptosStdlib", "AptosToken", "AptosTokenObjects"];
         let mut cur_version = begin;
         // if not exists, create the folder aptos-commoms which will store aptos-framework, aptos-stdlib and move-stdlib
         // aptos-framework-upgrade-num
@@ -161,13 +161,14 @@ impl AptosDebugger {
         }
         let mut count = 1;
         while count < limit {
+            println!("count:{}", count);
             let v = self
                 .debugger
                 .get_committed_transactions_with_available_src(cur_version.clone(), 1)
                 .await.unwrap_or_default();
             if !v.is_empty() {
                 assert_eq!(v.len(), 1);
-                // writeln!(dump_file, "{}", cur_version);
+                writeln!(dump_file, "{}", cur_version);
                 // run change_set
                 // let exec_entry = |session: &mut SessionExt| -> VMResult<()> {
                 //     let txn = &v[0].0;
@@ -190,7 +191,12 @@ impl AptosDebugger {
                     // If
                     // pub fn unzip_and_dump_source_from_package_metadata
                     // (root_package_name: String, root_account_address: AccountAddress, upgrade_num: u64, dep_map: &HashMap<(AccountAddress, String), PackageMetadata>)
-                    // BuiltPackage::unzip_package_metadata(p);
+                let package_name = v[0].clone().1.1;
+                let addr = v[0].clone().1.0;
+                let package = v[0].2.get(&(addr, package_name.clone())).unwrap();
+                if !BuiltPackage::is_aptos_package(&package_name) {
+                    BuiltPackage::unzip_and_dump_source_from_package_metadata(package_name, addr, package.upgrade_number, &v[0].2);
+                }
                     // if !aptos_libs.contains(&p.name.as_str()) && !p.name.contains("Aptos") {
                     //     exit = true;
                     //     println!("done handling package p:{}", p.name);

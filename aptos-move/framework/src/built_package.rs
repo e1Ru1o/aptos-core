@@ -315,6 +315,11 @@ impl BuiltPackage {
             .collect()
     }
 
+    pub fn is_aptos_package(package_name: &str) -> bool {
+        let aptos_libs = ["AptosFramework", "MoveStdlib", "AptosStdlib", "AptosToken", "AptosTokenObjects"];
+        aptos_libs.contains(&package_name)
+    }
+
     // step 2: analyzing the manifest file, handle each dependency using depth-first traversal
     // case 1: dependency on aptos related libraries:
     //
@@ -339,13 +344,6 @@ impl BuiltPackage {
                 File::create(module_path.clone())
                     .expect("Error encountered while creating file!");
             };
-            // } else {
-            //     OpenOptions::new()
-            //         .write(true)
-            //         .append(true)
-            //         .open(module_path)
-            //         .unwrap()
-            // };
             let source_str = unzip_metadata_str(&module.source).unwrap();
             std::fs::write(&module_path.clone(), source_str).unwrap();
         }
@@ -361,7 +359,7 @@ impl BuiltPackage {
             dep.version = None;
             dep.digest = None;
             dep.node_info = None;
-            dep.local = PathBuf::from(local_str);
+            dep.local = PathBuf::from("..").join(local_str);// PathBuf::from(local_str);
         };
 
         // step 3:
@@ -388,11 +386,11 @@ impl BuiltPackage {
         }
 
         // Dump the fixed manifest file
-        println!("manifest:{:?}", manifest);
         let toml_path = root_package_dir.join("Move.toml");
+
         //let _ = File::create(toml_path)
         //        .expect("Error encountered while creating file!");
-        //std::fs::write(&toml_path, manifest).unwrap();
+        std::fs::write(&toml_path, manifest.to_string()).unwrap();
 
         Ok(())
 

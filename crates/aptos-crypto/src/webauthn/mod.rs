@@ -29,9 +29,8 @@
 pub mod webauthn_p256_keys;
 pub mod webauthn_p256_sigs;
 
-/// WebAuthn fields that are included in the WebAuthn Signature and necessary for
-/// verification of the transaction
-pub mod webauthn_fields;
+/// Webauthn traits that all signature schemes should implement
+pub mod webauthn_traits;
 
 pub use webauthn_p256_keys::{WebAuthnP256PublicKey, WebAuthnP256PublicKey as PublicKey};
 pub use webauthn_p256_sigs::{WebAuthnP256Signature, WebAuthnP256Signature as Signature};

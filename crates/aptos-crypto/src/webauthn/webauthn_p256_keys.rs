@@ -13,7 +13,7 @@ use crate::{
 };
 use aptos_crypto_derive::{DeserializeKey, SerializeKey, SilentDebug, SilentDisplay};
 use core::convert::TryFrom;
-use p256::{self, ecdsa::signature::Signer};
+use p256::{self, ecdsa};
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::prelude::*;
 use serde::Serialize;
@@ -61,19 +61,27 @@ impl WebAuthnP256PrivateKey {
         }
     }
 
+    /// This may be problematic
+    /// Trait method is required but DOES NOT work well for WebAuthn signatures
+    /// because verification_data is unknown without auth_data and client_data_json
+    ///
     /// Private function aimed at minimizing code duplication between sign
     /// methods of the SigningKey implementation. This should remain private.
     fn sign_arbitrary_message(&self, message: &[u8]) -> WebAuthnP256Signature {
-        let secret_key: &p256::ecdsa::SigningKey = &self.0 .0;
-        let sig = WebAuthnP256Signature(P256Signature(secret_key.sign(message.as_ref())));
-        WebAuthnP256Signature::make_canonical(&sig)
+        let secret_key: &ecdsa::SigningKey = &self.0 .0;
+        WebAuthnP256Signature {
+            actual_challenge: vec![],
+            verification_data: vec![],
+            p256_signature: P256Signature(<ecdsa::SigningKey as signature::Signer<
+                ecdsa::Signature,
+            >>::sign(secret_key, message)),
+        }
     }
 }
 
 impl WebAuthnP256PublicKey {
     /// Serialize a WebAuthnP256PublicKey.
     pub fn to_bytes(&self) -> [u8; P256_PUBLIC_KEY_LENGTH] {
-        // The RustCrypto P256 `to_sec1_bytes` call here should never return an array of the wrong length and cause a panic
         self.0.to_bytes()
     }
 
@@ -81,8 +89,8 @@ impl WebAuthnP256PublicKey {
     /// and that it is a valid curve point.
     pub(crate) fn from_bytes_unchecked(
         bytes: &[u8],
-    ) -> std::result::Result<WebAuthnP256PublicKey, CryptoMaterialError> {
-        match p256::ecdsa::VerifyingKey::from_sec1_bytes(bytes) {
+    ) -> Result<WebAuthnP256PublicKey, CryptoMaterialError> {
+        match ecdsa::VerifyingKey::from_sec1_bytes(bytes) {
             Ok(p256_public_key) => Ok(WebAuthnP256PublicKey(P256PublicKey(p256_public_key))),
             Err(_) => Err(CryptoMaterialError::DeserializationError),
         }
@@ -98,8 +106,8 @@ impl PrivateKey for WebAuthnP256PrivateKey {
 }
 
 impl SigningKey for WebAuthnP256PrivateKey {
-    type SignatureMaterial = WebAuthnP256Signature;
     type VerifyingKeyMaterial = WebAuthnP256PublicKey;
+    type SignatureMaterial = WebAuthnP256Signature;
 
     fn sign<T: CryptoHash + Serialize>(
         &self,

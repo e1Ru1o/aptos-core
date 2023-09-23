@@ -38,6 +38,8 @@ impl fmt::Display for SourceManifest {
             for (named, addr_opt) in address_map.into_iter() {
                 if let Some(addr) = addr_opt {
                     writeln!(f, "{} = \"{}\"", named.as_str(), addr)?;
+                } else {
+                    writeln!(f, "{} = \"_\"", named.as_str())?;
                 }
             }
         }

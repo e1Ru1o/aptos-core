@@ -151,24 +151,26 @@ impl AptosDebugger {
         limit: u64,
         dump_file: &mut File,
     ) -> Version {
-        let aptos_libs = ["AptosFramework", "MoveStdlib", "AptosStdlib", "AptosToken", "AptosTokenObjects"];
         let mut cur_version = begin;
         // if not exists, create the folder aptos-commoms which will store aptos-framework, aptos-stdlib and move-stdlib
         // aptos-framework-upgrade-num
-        let mut aptos_commons_path = PathBuf::from(".").join("aptos-commoms");
+        let mut aptos_commons_path = PathBuf::from(".").join("aptos-commons");
         if !aptos_commons_path.exists() {
             std::fs::create_dir_all(aptos_commons_path.as_path()).unwrap();
         }
         let mut count = 1;
+        let batch_num = 100;
         while count < limit {
-            println!("count:{}", count);
+            println!("get txn at version:{}", cur_version);
             let v = self
                 .debugger
-                .get_committed_transactions_with_available_src(cur_version.clone(), 1)
+                .get_committed_transactions_with_available_src(cur_version.clone(), batch_num)
                 .await.unwrap_or_default();
             if !v.is_empty() {
-                assert_eq!(v.len(), 1);
-                writeln!(dump_file, "{}", cur_version);
+                //assert_eq!(v.len(), 1);
+                count += v.len() as u64;
+                println!("count:{}", count);
+
                 // run change_set
                 // let exec_entry = |session: &mut SessionExt| -> VMResult<()> {
                 //     let txn = &v[0].0;
@@ -186,27 +188,17 @@ impl AptosDebugger {
                 // create a new folder to store the source code
                 // unzip_package for the root package
                 // during execution
-                // for p in &v[0].1 {
-                    // println!("package:{}", p.name);
-                    // If
-                    // pub fn unzip_and_dump_source_from_package_metadata
-                    // (root_package_name: String, root_account_address: AccountAddress, upgrade_num: u64, dep_map: &HashMap<(AccountAddress, String), PackageMetadata>)
-                let package_name = v[0].clone().1.1;
-                let addr = v[0].clone().1.0;
-                let package = v[0].2.get(&(addr, package_name.clone())).unwrap();
-                if !BuiltPackage::is_aptos_package(&package_name) {
-                    BuiltPackage::unzip_and_dump_source_from_package_metadata(package_name, addr, package.upgrade_number, &v[0].2);
+                for (version, _, (addr, package_name), map) in v {
+                    writeln!(dump_file, "{}", version);
+                    if !BuiltPackage::is_aptos_package(&package_name) {
+                        println!("package name:{}", package_name);
+                        let package = map.get(&(addr, package_name.clone())).unwrap();
+                        BuiltPackage::unzip_and_dump_source_from_package_metadata(package_name, addr, package.upgrade_number, &map);
+                    }
                 }
-                    // if !aptos_libs.contains(&p.name.as_str()) && !p.name.contains("Aptos") {
-                    //     exit = true;
-                    //     println!("done handling package p:{}", p.name);
-                    // }
-                // }
-                count += 1;
-                cur_version += 1;
-            } else {
-                cur_version += 1;
+
             }
+            cur_version += batch_num;
         }
         cur_version
     }

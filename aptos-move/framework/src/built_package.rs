@@ -327,6 +327,7 @@ impl BuiltPackage {
     (root_package_name: String, root_account_address: AccountAddress, upgrade_num: u64, dep_map: &HashMap<(AccountAddress, String), PackageMetadata>) ->
     anyhow::Result<()> {
 
+        let aptos_common_address = "aptos-commons";
         let root_package_dir = PathBuf::from(".")
             .join(format!("{}.{}.{}", root_package_name, root_account_address, upgrade_num));
         if root_package_dir.exists() {
@@ -371,6 +372,10 @@ impl BuiltPackage {
                 let pack_dep_address = pack_dep.account;
                 let pack_dep_name = pack_dep.clone().package_name;
                 if pack_dep_name == manifest_dep_name {
+                    if Self::is_aptos_package(&pack_dep_name) {
+                        fix_manifest(dep, &format!("{}/{}", aptos_common_address, &pack_dep_name));
+                        break;
+                    }
                     // format!("{}.{}.{}", root_package_name, root_account_address, upgrade_num)
                     let dep_metadata_opt = dep_map.get(&(pack_dep_address, pack_dep_name.clone()));
                     if let Some(dep_metadata) = dep_metadata_opt {

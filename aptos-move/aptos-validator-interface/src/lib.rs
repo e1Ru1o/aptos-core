@@ -52,7 +52,7 @@ pub trait AptosValidatorInterface: Sync {
         &self,
         _start: Version,
         _limit: u64,
-    ) -> Result<Vec<(Transaction, (AccountAddress, String), HashMap<(AccountAddress, String), PackageMetadata>)>>;
+    ) -> Result<Vec<(u64, Transaction, (AccountAddress, String), HashMap<(AccountAddress, String), PackageMetadata>)>>;
 
     async fn get_latest_version(&self) -> Result<Version>;
 

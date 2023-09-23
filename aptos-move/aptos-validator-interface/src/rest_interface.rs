@@ -7,6 +7,7 @@ use aptos_api_types::{AptosError, AptosErrorCode};
 use aptos_framework::{
     natives::code::{PackageMetadata, PackageRegistry},
     unzip_metadata_str,
+    BuiltPackage,
 };
 use move_core_types::language_storage::ModuleId;
 use aptos_rest_client::{
@@ -103,7 +104,7 @@ impl AptosValidatorInterface for RestDebuggerInterface {
         &self,
         start: Version,
         limit: u64,
-    ) -> Result<Vec<(Transaction, (AccountAddress, String), HashMap<(AccountAddress, String), PackageMetadata>)>> {
+    ) -> Result<Vec<(u64, Transaction, (AccountAddress, String), HashMap<(AccountAddress, String), PackageMetadata>)>> {
         let mut txns = Vec::with_capacity(limit as usize);
         let temp_txns = self
             .0
@@ -179,6 +180,10 @@ impl AptosValidatorInterface for RestDebuggerInterface {
                     }
                     let m = entry_function.module();
                     let addr = m.address();
+                    if *addr == AccountAddress::ONE { // if the function is from 0x1, continue
+                        txns.push((txn.version, txn.transaction.clone(), (*addr, "AptosFramework".to_string()), HashMap::new()));
+                        continue;
+                    }
                     let packages = self
                         .0
                         .get_account_resource_bcs::<PackageRegistry>(
@@ -188,15 +193,13 @@ impl AptosValidatorInterface for RestDebuggerInterface {
                         .await?
                         .into_inner()
                         .packages;
-                    // println!("get entry module:{}", m.name().as_str());
                     let target_package_opt = locate_package_with_src(m, &packages);
                     if let Some(target_package) = target_package_opt {
                         // target_package is the root package
-                        // println!("get package:{}", target_package.name);
                         let mut map = HashMap::new();
                         if let Ok(()) = retrieve_dep_packages_with_src(&self.0, &target_package, &mut map).await {
                             map.insert((addr.clone(), target_package.clone().name), target_package.clone());
-                            txns.push((txn.transaction, (*addr, target_package.name), map));
+                            txns.push((txn.version, txn.transaction, (*addr, target_package.name), map));
                         }
                     }
                 }

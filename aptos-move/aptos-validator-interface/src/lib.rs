@@ -5,10 +5,10 @@
 mod rest_interface;
 mod storage_interface;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 pub use crate::{rest_interface::RestDebuggerInterface, storage_interface::DBDebuggerInterface};
 use anyhow::{anyhow, Result};
-use aptos_framework::natives::code::PackageMetadata;
+use aptos_framework::natives::code::{PackageMetadata, PackageRegistry};
 use aptos_state_view::TStateView;
 use aptos_types::{
     account_address::AccountAddress,
@@ -52,6 +52,7 @@ pub trait AptosValidatorInterface: Sync {
         &self,
         _start: Version,
         _limit: u64,
+        registry_cache: &mut BTreeMap<AccountAddress, PackageRegistry>,
     ) -> Result<Vec<(u64, Transaction, (AccountAddress, String), HashMap<(AccountAddress, String), PackageMetadata>)>>;
 
     async fn get_latest_version(&self) -> Result<Version>;

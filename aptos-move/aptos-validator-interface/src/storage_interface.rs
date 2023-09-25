@@ -9,7 +9,7 @@ use aptos_config::config::{
     NO_OP_STORAGE_PRUNER_CONFIG,
 };
 use aptos_db::AptosDB;
-use aptos_framework::natives::code::PackageMetadata;
+use aptos_framework::natives::code::{PackageMetadata, PackageRegistry};
 use aptos_storage_interface::{DbReader, MAX_REQUEST_LIMIT};
 use aptos_types::{
     account_address::AccountAddress,
@@ -18,7 +18,7 @@ use aptos_types::{
     transaction::{Transaction, TransactionInfo, Version},
 };
 use std::{path::Path, sync::Arc};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub struct DBDebuggerInterface(Arc<dyn DbReader>);
 
@@ -85,6 +85,7 @@ impl AptosValidatorInterface for DBDebuggerInterface {
         &self,
         _start: Version,
         _limit: u64,
+        _registry_cache: &mut BTreeMap<AccountAddress, PackageRegistry>,
     ) -> Result<Vec<(u64, Transaction, (AccountAddress, String), HashMap<(AccountAddress, String), PackageMetadata>)>> {
         unimplemented!();
     }

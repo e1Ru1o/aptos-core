@@ -104,6 +104,7 @@ impl AptosValidatorInterface for RestDebuggerInterface {
         &self,
         start: Version,
         limit: u64,
+        package_registry_cache: &mut BTreeMap<AccountAddress, PackageRegistry>
     ) -> Result<Vec<(u64, Transaction, (AccountAddress, String), HashMap<(AccountAddress, String), PackageMetadata>)>> {
         let mut txns = Vec::with_capacity(limit as usize);
         let temp_txns = self
@@ -132,7 +133,9 @@ impl AptosValidatorInterface for RestDebuggerInterface {
         };
 
         #[async_recursion]
-        async fn retrieve_available_src(client: &Client, package: &PackageMetadata, account_address: AccountAddress, data: &mut HashMap<(AccountAddress, String), PackageMetadata>) -> Result<()> {
+        async fn retrieve_available_src(client: &Client, package: &PackageMetadata, account_address: AccountAddress,
+                                        data: &mut HashMap<(AccountAddress, String), PackageMetadata>,
+                                        package_registry_cache: &mut BTreeMap<AccountAddress, PackageRegistry>) -> Result<()> {
             if package.modules.is_empty() {
                 return Err(anyhow::anyhow!("no modules"));
             }
@@ -142,7 +145,7 @@ impl AptosValidatorInterface for RestDebuggerInterface {
                 let package_name = package.clone().name;
                 if !data.contains_key(&(account_address, package_name.clone())) {
                     data.insert((account_address.clone(), package_name.clone()), package.clone());
-                    retrieve_dep_packages_with_src(client, package, data).await
+                    retrieve_dep_packages_with_src(client, package, data, package_registry_cache).await
                 } else {
                     return Ok(());
                 }
@@ -150,19 +153,35 @@ impl AptosValidatorInterface for RestDebuggerInterface {
         };
 
         #[async_recursion]
-        async fn retrieve_dep_packages_with_src(client: &Client, root_package: &PackageMetadata, data: &mut HashMap<(AccountAddress, String), PackageMetadata>)
-            -> Result<()> {
-            for dep in &root_package.deps {
+        async fn get_or_update_package_registry<'a>(client: &Client, addr: & AccountAddress,
+                                                    package_registry_cache: &'a mut BTreeMap<AccountAddress, PackageRegistry>) -> &'a PackageRegistry {
+            if package_registry_cache.contains_key(addr) {
+                package_registry_cache.get(addr).unwrap()
+            } else {
                 let packages = client
                     .get_account_resource_bcs::<PackageRegistry>(
-                        dep.account,
+                        addr.clone(),
                         "0x1::code::PackageRegistry",
                     )
-                    .await?
-                    .into_inner()
-                    .packages;
-                for package in &packages {
-                    retrieve_available_src(client, package, dep.account, data).await?;
+                    .await.unwrap()
+                    .into_inner();
+                package_registry_cache.insert(addr.clone(), packages);
+                package_registry_cache.get(addr).unwrap()
+            }
+        };
+
+        #[async_recursion]
+        async fn retrieve_dep_packages_with_src(client: &Client, root_package: &PackageMetadata,
+                                                data: &mut HashMap<(AccountAddress, String), PackageMetadata>,
+                                                package_registry_cache: &mut BTreeMap<AccountAddress, PackageRegistry>)
+            -> Result<()> {
+            for dep in &root_package.deps {
+                let package_registry = get_or_update_package_registry(client, &dep.account, package_registry_cache).await;
+                for package in &package_registry.packages {
+                    if package.name == dep.package_name {
+                        retrieve_available_src(client, &package.clone(), dep.account, data, package_registry_cache).await?;
+                        break;
+                    }
                 }
             }
             Ok(())
@@ -174,30 +193,24 @@ impl AptosValidatorInterface for RestDebuggerInterface {
                 if let aptos_types::transaction::TransactionPayload::EntryFunction(entry_function) =
                     payload
                 {
-                    if entry_function.function().as_str() == "publish_package_txn" {
-                        println!("skip publish txn");
-                        continue;
-                    }
                     let m = entry_function.module();
                     let addr = m.address();
-                    if *addr == AccountAddress::ONE { // if the function is from 0x1, continue
-                        txns.push((txn.version, txn.transaction.clone(), (*addr, "AptosFramework".to_string()), HashMap::new()));
+                    if entry_function.function().as_str() == "publish_package_txn" {
+                        println!("publish txn, remove registry cache for the account {}", addr);
+                        // Remove cache from package_registry_cache
+                        if package_registry_cache.contains_key(addr) {
+                            package_registry_cache.remove(addr);
+                        }
                         continue;
                     }
-                    let packages = self
-                        .0
-                        .get_account_resource_bcs::<PackageRegistry>(
-                            addr.clone(),
-                            "0x1::code::PackageRegistry",
-                        )
-                        .await?
-                        .into_inner()
-                        .packages;
-                    let target_package_opt = locate_package_with_src(m, &packages);
+                    let package_registry = get_or_update_package_registry(&self.0, addr, package_registry_cache).await;
+                    let target_package_opt = locate_package_with_src(m, &package_registry.packages);
+                    // target_package is the root package
                     if let Some(target_package) = target_package_opt {
-                        // target_package is the root package
                         let mut map = HashMap::new();
-                        if let Ok(()) = retrieve_dep_packages_with_src(&self.0, &target_package, &mut map).await {
+                        if BuiltPackage::is_aptos_package(&target_package.name) { // if the function is from 0x1, continue
+                            txns.push((txn.version, txn.transaction.clone(), (*addr, target_package.name), HashMap::new()));
+                        } else if let Ok(()) = retrieve_dep_packages_with_src(&self.0, &target_package, &mut map, package_registry_cache).await {
                             map.insert((addr.clone(), target_package.clone().name), target_package.clone());
                             txns.push((txn.version, txn.transaction, (*addr, target_package.name), map));
                         }

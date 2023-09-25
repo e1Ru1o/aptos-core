@@ -345,6 +345,13 @@ impl FakeExecutor {
         self.data_store.add_module(module_id, module_blob)
     }
 
+    /// Sets a (key, value) pair within this data store.
+    ///
+    /// Returns the previous data if the key was occupied.
+    pub fn set(&mut self, state_key: StateKey, state_value: StateValue) -> Option<StateValue> {
+        self.data_store.set(state_key, state_value)
+    }
+
     /// Reads the resource `Value` for an account from this executor's data store.
     pub fn read_account_resource(&self, account: &Account) -> Option<AccountResource> {
         self.read_account_resource_at_address(account.address())

@@ -7,11 +7,7 @@ use crate::{
     native_extensions::NativeContextExtensions,
 };
 use bytes::Bytes;
-use move_binary_format::{
-    compatibility::Compatibility,
-    errors::*,
-    file_format::{AbilitySet, LocalIndex},
-};
+use move_binary_format::{compatibility::Compatibility, CompiledModule, errors::*, file_format::{AbilitySet, LocalIndex}};
 use move_core_types::{
     account_address::AccountAddress,
     effects::{ChangeSet, Changes},
@@ -112,6 +108,29 @@ impl<'r, 'l> Session<'r, 'l> {
             bypass_declared_entry_check,
         )
     }
+
+    // pub fn execute_function_bypass_visibility_with_compiled_package(
+    //     &mut self,
+    //     module: &ModuleId,
+    //     function_name: &IdentStr,
+    //     ty_args: Vec<TypeTag>,
+    //     args: Vec<impl Borrow<[u8]>>,
+    //     gas_meter: &mut impl GasMeter,
+    //     _compiledModule: CompiledUnit
+    // ) -> VMResult<SerializedReturnValues> {
+    //     let bypass_declared_entry_check = true;
+    //     self.move_vm.runtime.execute_function_with_compiled_module(
+    //         module,
+    //         function_name,
+    //         ty_args,
+    //         args,
+    //         &mut self.data_cache,
+    //         gas_meter,
+    //         &mut self.native_extensions,
+    //         bypass_declared_entry_check,
+    //         _compiledModule
+    //     )
+    // }
 
     pub fn execute_instantiated_function(
         &mut self,

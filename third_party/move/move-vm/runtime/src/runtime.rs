@@ -405,6 +405,35 @@ impl VMRuntime {
         )
     }
 
+    // pub(crate) fn execute_function_with_compiled_module(
+    //     &self,
+    //     module: &ModuleId,
+    //     function_name: &IdentStr,
+    //     ty_args: Vec<TypeTag>,
+    //     serialized_args: Vec<impl Borrow<[u8]>>,
+    //     data_store: &mut TransactionDataCache,
+    //     gas_meter: &mut impl GasMeter,
+    //     extensions: &mut NativeContextExtensions,
+    //     bypass_declared_entry_check: bool,
+    //     _compiledModule: CompiledUnit,
+    // ) -> VMResult<SerializedReturnValues> {
+    //     // load the function
+    //     let (module, function, instantiation) =
+    //         self.loader
+    //             .load_function(module, function_name, &ty_args, data_store)?;
+    //
+    //
+    //     self.execute_function_instantiation(
+    //         LoadedFunction { module, function },
+    //         instantiation,
+    //         serialized_args,
+    //         data_store,
+    //         gas_meter,
+    //         extensions,
+    //         bypass_declared_entry_check,
+    //     )
+    // }
+
     pub(crate) fn execute_function_instantiation(
         &self,
         func: LoadedFunction,

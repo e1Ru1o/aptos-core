@@ -30,10 +30,12 @@ aptos-vm-logging = { workspace = true }
 aptos-vm-types = { workspace = true }
 bcs = { workspace = true }
 clap = { workspace = true }
+aptos-language-e2e-tests = { workspace = true }
 move-binary-format = { workspace = true }
 move-cli = { workspace = true }
 move-compiler = { workspace = true }
 move-core-types = { workspace = true }
+move-package = { workspace = true }
 move-resource-viewer = { workspace = true }
 move-vm-runtime = { workspace = true }
 move-vm-types = { workspace = true }

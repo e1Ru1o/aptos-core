@@ -3,7 +3,7 @@
 //! This module provides an API for the ECDSA signature scheme over the NIST-P256 curve as defined in [NIST SP 800-186](https://csrc.nist.gov/publications/detail/sp/800-186/final).
 //!
 //! Signature verification also checks and rejects non-canonical signatures. Signing is guaranteed
-//! to output the canonical signature which passes this module's verification. 
+//! to output the canonical signature which passes this module's verification.
 //!
 //! # Examples
 //!

@@ -566,6 +566,15 @@ pub fn convert_secp256k1_ecdsa_signature(
     }
 }
 
+pub fn convert_webauthn_p256_signature(
+    sig: &aptos_api_types::transaction::WebAuthnP256Signature,
+) -> transaction::WebAuthnP256Signature {
+    transaction::WebAuthnP256Signature {
+        public_key: sig.public_key.0.clone(),
+        signature: sig.signature.0.clone(),
+    }
+}
+
 pub fn convert_account_signature(
     account_signature: &AccountSignature,
 ) -> transaction::AccountSignature {
@@ -576,6 +585,9 @@ pub fn convert_account_signature(
         },
         AccountSignature::Secp256k1EcdsaSignature(_) => {
             transaction::account_signature::Type::Secp256k1Ecdsa
+        },
+        AccountSignature::WebAuthnP256Signature(_) => {
+            transaction::account_signature::Type::WebAuthnP256
         },
     };
     let signature = match account_signature {
@@ -590,6 +602,12 @@ pub fn convert_account_signature(
         AccountSignature::Secp256k1EcdsaSignature(s) => {
             transaction::account_signature::Signature::Secp256k1Ecdsa(
                 convert_secp256k1_ecdsa_signature(s),
+            )
+        },
+        AccountSignature::WebAuthnP256Signature(s) => {
+            // TODO why is this not WebAuthnP256?
+            transaction::account_signature::Signature::WebauthnP256(
+                convert_webauthn_p256_signature(s),
             )
         },
     };

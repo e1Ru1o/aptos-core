@@ -7,6 +7,7 @@ use crate::{
     transaction::{RawTransaction, RawTransactionWithData},
 };
 use anyhow::{ensure, Error, Result};
+use aptos_crypto::webauthn::{WebAuthnP256PublicKey, WebAuthnP256Signature};
 use aptos_crypto::{
     ed25519::{Ed25519PublicKey, Ed25519Signature},
     hash::CryptoHash,
@@ -376,6 +377,8 @@ pub enum Scheme {
     Ed25519 = 0,
     MultiEd25519 = 1,
     Secp256k1Ecdsa = 2,
+    WebAuthnP256 = 3,
+    // ... add more schemes here
     /// Scheme identifier used to derive addresses (not the authentication key) of objects and
     /// resources accounts. This application serves to domain separate hashes. Without such
     /// separation, an adversary could create (and get a signer for) a these accounts
@@ -394,6 +397,7 @@ impl fmt::Display for Scheme {
             Scheme::Ed25519 => "Ed25519",
             Scheme::MultiEd25519 => "MultiEd25519",
             Scheme::Secp256k1Ecdsa => "Secp256k1Ecdsa",
+            Scheme::WebAuthnP256 => "WebAuthnP256",
             Scheme::DeriveAuid => "DeriveAuid",
             Scheme::DeriveObjectAddressFromObject => "DeriveObjectAddressFromObject",
             Scheme::DeriveObjectAddressFromGuid => "DeriveObjectAddressFromGuid",
@@ -427,6 +431,11 @@ pub enum AccountAuthenticator {
         public_key: secp256k1_ecdsa::PublicKey,
         signature: secp256k1_ecdsa::Signature,
     },
+    /// WebAuthn P256 signature
+    WebAuthnP256 {
+        public_key: WebAuthnP256PublicKey,
+        signature: WebAuthnP256Signature,
+    },
     // ... add more schemes here
 }
 
@@ -437,6 +446,7 @@ impl AccountAuthenticator {
             Self::Ed25519 { .. } => Scheme::Ed25519,
             Self::MultiEd25519 { .. } => Scheme::MultiEd25519,
             Self::Secp256k1Ecdsa { .. } => Scheme::Secp256k1Ecdsa,
+            Self::WebAuthnP256 { .. } => Scheme::WebAuthnP256,
         }
     }
 
@@ -470,6 +480,17 @@ impl AccountAuthenticator {
         }
     }
 
+    /// Create a WebAuthn P256 authenticator
+    pub fn webauthn_p256(
+        public_key: WebAuthnP256PublicKey,
+        signature: WebAuthnP256Signature,
+    ) -> Self {
+        Self::WebAuthnP256 {
+            public_key,
+            signature,
+        }
+    }
+
     /// Return Ok if the authenticator's public key matches its signature, Err otherwise
     pub fn verify<T: Serialize + CryptoHash>(&self, message: &T) -> Result<()> {
         match self {
@@ -485,6 +506,10 @@ impl AccountAuthenticator {
                 public_key,
                 signature,
             } => signature.verify(message, public_key),
+            Self::WebAuthnP256 {
+                public_key,
+                signature,
+            } => signature.verify(message, public_key),
         }
     }
 
@@ -494,6 +519,7 @@ impl AccountAuthenticator {
             Self::Ed25519 { public_key, .. } => public_key.to_bytes().to_vec(),
             Self::MultiEd25519 { public_key, .. } => public_key.to_bytes().to_vec(),
             Self::Secp256k1Ecdsa { public_key, .. } => public_key.to_bytes().to_vec(),
+            Self::WebAuthnP256 { public_key, .. } => public_key.to_bytes().to_vec(),
         }
     }
 
@@ -503,6 +529,7 @@ impl AccountAuthenticator {
             Self::Ed25519 { signature, .. } => signature.to_bytes().to_vec(),
             Self::MultiEd25519 { signature, .. } => signature.to_bytes().to_vec(),
             Self::Secp256k1Ecdsa { signature, .. } => Signature::to_bytes(signature).to_vec(),
+            Self::WebAuthnP256 { signature, .. } => signature.to_bytes().to_vec(),
         }
     }
 
@@ -517,6 +544,7 @@ impl AccountAuthenticator {
             Self::Ed25519 { .. } => 1,
             Self::MultiEd25519 { signature, .. } => signature.signatures().len(),
             Self::Secp256k1Ecdsa { .. } => 1,
+            Self::WebAuthnP256 { .. } => 1,
         }
     }
 }
@@ -581,6 +609,11 @@ impl AuthenticationKey {
     /// Create an authentication key from a Secp256k1Ecdsa public key
     pub fn secp256k1_ecdsa(public_key: &secp256k1_ecdsa::PublicKey) -> AuthenticationKey {
         Self::from_preimage(public_key.to_bytes().to_vec(), Scheme::Secp256k1Ecdsa)
+    }
+
+    /// Create an authentication key from a WebAuthnP256 public key
+    pub fn webauthn_p256(public_key: &WebAuthnP256PublicKey) -> Self {
+        Self::from_preimage(public_key.to_bytes().to_vec(), Scheme::WebAuthnP256)
     }
 
     /// Return the authentication key as an account address

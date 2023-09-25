@@ -84,7 +84,7 @@ impl P256Signature {
 
     /// If the signature {R,S} does not have S < n/2 where n is the Ristretto255 order, return
     /// {R,n-S} as the canonical encoding of this signature to prevent malleability attacks. See
-    /// `check_s_malleability` for more detail 
+    /// `check_s_malleability` for more detail
     pub fn make_canonical(&self) -> P256Signature {
         if P256Signature::check_s_malleability(&self.to_bytes()[..]).is_ok() {
             return self.clone()

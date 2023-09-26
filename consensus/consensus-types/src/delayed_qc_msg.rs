@@ -2,8 +2,7 @@
 // Parts of the project are originally copyright © Meta Platforms, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{common::Round, vote_data::VoteData};
-use aptos_types::ledger_info::LedgerInfo;
+use crate::vote::Vote;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
@@ -12,42 +11,22 @@ use std::fmt::{Display, Formatter};
 /// time to catch up to the chain and cast their votes.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct DelayedQcMsg {
-    round: Round,
     /// Vote data for the QC that is being delayed.
-    vote: VoteData,
-    /// Ledger info associated with the QC that is being delayed.
-    ledger_info: LedgerInfo,
+    pub vote: Vote,
 }
 
 impl Display for DelayedQcMsg {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "DelayedQcMsg: round [{}] and ledger info [{}]",
-            self.round,
-            self.ledger_info()
-        )
+        write!(f, "DelayedQcMsg: vote [{}]", self.vote,)
     }
 }
 
 impl DelayedQcMsg {
-    pub fn new(round: Round, vote: VoteData, ledger_info: LedgerInfo) -> Self {
-        Self {
-            round,
-            vote,
-            ledger_info,
-        }
+    pub fn new(vote: Vote) -> Self {
+        Self { vote }
     }
 
-    pub fn round(&self) -> Round {
-        self.round
-    }
-
-    pub fn vote(&self) -> &VoteData {
+    pub fn vote(&self) -> &Vote {
         &self.vote
-    }
-
-    pub fn ledger_info(&self) -> &LedgerInfo {
-        &self.ledger_info
     }
 }

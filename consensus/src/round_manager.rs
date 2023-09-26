@@ -438,17 +438,13 @@ impl RoundManager {
     }
 
     pub async fn process_delayed_qc_msg(&mut self, msg: DelayedQcMsg) -> anyhow::Result<()> {
-        if msg.round() != self.round_state.current_round() {
-            bail!(
-                "Discarding stale delayed qc message {}, current round {}",
-                msg,
-                self.round_state.current_round()
-            );
-        }
-
-        todo!()
-
-        // self.process_verified_proposal(proposal).await
+        let vote = msg.vote().clone();
+        let vote_reception_result = self
+            .round_state
+            .process_delayed_qc_msg(&self.epoch_state.verifier, msg)
+            .await;
+        self.process_vote_reception_result(&vote, vote_reception_result)
+            .await
     }
 
     /// Sync to the sync info sending from peer if it has newer certificates.
@@ -864,11 +860,20 @@ impl RoundManager {
         {
             return Ok(());
         }
-        // Add the vote and check whether it completes a new QC or a TC
-        match self
+        let vote_reception_result = self
             .round_state
-            .insert_vote(vote, &self.epoch_state.verifier)
-        {
+            .insert_vote(vote, &self.epoch_state.verifier);
+        self.process_vote_reception_result(vote, vote_reception_result)
+            .await
+    }
+
+    async fn process_vote_reception_result(
+        &mut self,
+        vote: &Vote,
+        result: VoteReceptionResult,
+    ) -> anyhow::Result<()> {
+        let round = vote.vote_data().proposed().round();
+        match result {
             VoteReceptionResult::NewQuorumCertificate(qc) => {
                 if !vote.is_timeout() {
                     observe_block(
@@ -885,6 +890,7 @@ impl RoundManager {
                 self.process_local_timeout(round).await
             },
             VoteReceptionResult::VoteAdded(_)
+            | VoteReceptionResult::VoteAddedQCDelayed(_)
             | VoteReceptionResult::EchoTimeout(_)
             | VoteReceptionResult::DuplicateVote => Ok(()),
             e => Err(anyhow::anyhow!("{:?}", e)),

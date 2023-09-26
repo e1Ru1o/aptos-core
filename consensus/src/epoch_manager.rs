@@ -826,7 +826,6 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
             self.quorum_store_enabled,
         );
 
-
         let (proposal_precheck_tx, mut proposal_precheck_rx) = aptos_channel::new(
             QueueStyle::FIFO,
             1,

@@ -112,14 +112,6 @@ impl DelayedQcAggregator {
             round_manager_tx,
         }
     }
-
-    fn delayed_qc_msg(vote: &Vote) -> DelayedQcMsg {
-        DelayedQcMsg::new(
-            vote.vote_data().proposed().round(),
-            vote.vote_data().clone(),
-            vote.ledger_info().clone(),
-        )
-    }
 }
 
 impl QcAggregator for DelayedQcAggregator {
@@ -169,7 +161,7 @@ impl QcAggregator for DelayedQcAggregator {
         let wait_time = (self.max_delay_after_round_start - time_since_round_start)
             .min(time_since_round_start * self.pct_delay_after_qc_aggregated as u32 / 100);
 
-        let delayed_qc_event = VerifiedDelayedQcMsg(Box::new(Self::delayed_qc_msg(vote)));
+        let delayed_qc_event = VerifiedDelayedQcMsg(Box::new(DelayedQcMsg::new(vote.clone())));
         let author = vote.author();
         self.qc_aggregation_delayed = true;
 

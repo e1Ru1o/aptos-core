@@ -27,7 +27,7 @@ use aptos_crypto::{hash::CryptoHash, HashValue};
 use aptos_logger::prelude::*;
 use aptos_types::{
     aggregate_signature::PartialSignatures,
-    ledger_info::{LedgerInfo, LedgerInfoWithPartialSignatures},
+    ledger_info::LedgerInfoWithPartialSignatures,
     validator_verifier::{ValidatorVerifier, VerifyError},
 };
 use std::{
@@ -292,16 +292,13 @@ impl PendingVotes {
     pub fn process_delayed_qc(
         &mut self,
         validator_verifier: &ValidatorVerifier,
-        vote_data: VoteData,
-        ledger_info: LedgerInfo,
+        vote: Vote,
     ) -> VoteReceptionResult {
-        let (_, li_with_sig) = self
-            .li_digest_to_votes
-            .get_mut(&ledger_info.hash())
-            .unwrap();
+        let li_digest = vote.ledger_info().hash();
+        let (_, li_with_sig) = self.li_digest_to_votes.get_mut(&li_digest).unwrap();
         match validator_verifier.check_voting_power(li_with_sig.signatures().keys(), true) {
             // a quorum of signature was reached, a new QC is formed
-            Ok(_) => Self::aggregate_qc_now(validator_verifier, li_with_sig, &vote_data),
+            Ok(_) => Self::aggregate_qc_now(validator_verifier, li_with_sig, vote.vote_data()),
 
             // not enough votes
             Err(VerifyError::TooLittleVotingPower { .. }) => {
@@ -312,7 +309,7 @@ impl PendingVotes {
             Err(error) => {
                 error!(
                     "MUST_FIX: vote received could not be added: {}, vote: {}",
-                    error, vote_data
+                    error, vote
                 );
                 VoteReceptionResult::ErrorAddingVote(error)
             },

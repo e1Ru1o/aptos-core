@@ -8,7 +8,6 @@ use crate::{
     round_manager::VerifiedEvent,
     util::time_service::{SendTask, TimeService},
 };
-use anyhow::bail;
 use aptos_channels::aptos_channel;
 use aptos_config::config::QcAggregatorType;
 use aptos_consensus_types::{
@@ -321,18 +320,22 @@ impl RoundState {
         }
     }
 
-    pub async fn process_delayed_qc_msg(&mut self, msg: DelayedQcMsg) -> anyhow::Result<()> {
-        if msg.round() != self.current_round() {
-            bail!(
-                "Discarding stale delayed qc message {}, current round {}",
-                msg,
+    pub async fn process_delayed_qc_msg(
+        &mut self,
+        validator_verifier: &ValidatorVerifier,
+        msg: DelayedQcMsg,
+    ) -> VoteReceptionResult {
+        let DelayedQcMsg { vote } = msg;
+        if vote.vote_data().proposed().round() != self.current_round {
+            warn!(
+                "Discarding stale delayed for round {}, current round {}",
+                vote.vote_data().proposed().round(),
                 self.current_round()
             );
         }
 
-        todo!()
-
-        // self.process_verified_proposal(proposal).await
+        self.pending_votes
+            .process_delayed_qc(validator_verifier, vote)
     }
 
     pub fn vote_sent(&self) -> Option<Vote> {

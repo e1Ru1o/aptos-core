@@ -12,6 +12,7 @@ use crate::{
     util::mock_time_service::SimulatedTimeService,
 };
 use aptos_channels::{aptos_channel, message_queues::QueueStyle};
+use aptos_config::config::QcAggregatorType;
 use aptos_consensus_types::{
     block::{
         block_test_utils::{
@@ -292,7 +293,8 @@ async fn test_insert_vote() {
         Some(&counters::ROUND_MANAGER_CHANNEL_MSGS),
     );
 
-    let mut pending_votes = PendingVotes::new(time_service, round_manager_tx);
+    let mut pending_votes =
+        PendingVotes::new(time_service, round_manager_tx, QcAggregatorType::NoDelay);
 
     assert!(block_store.get_quorum_cert_for_block(block.id()).is_none());
     for (i, voter) in signers.iter().enumerate().take(10).skip(1) {

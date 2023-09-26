@@ -22,7 +22,10 @@ use crate::{
     util::{mock_time_service::SimulatedTimeService, time_service::TimeService},
 };
 use aptos_channels::{self, aptos_channel, message_queues::QueueStyle};
-use aptos_config::{config::ConsensusConfig, network_id::NetworkId};
+use aptos_config::{
+    config::{ConsensusConfig, QcAggregatorType},
+    network_id::NetworkId,
+};
 use aptos_consensus_types::proposal_msg::ProposalMsg;
 use aptos_infallible::Mutex;
 use aptos_network::{
@@ -114,6 +117,7 @@ fn create_round_state() -> RoundState {
         time_service,
         round_timeout_sender,
         round_manager_tx,
+        QcAggregatorType::NoDelay,
     )
 }
 

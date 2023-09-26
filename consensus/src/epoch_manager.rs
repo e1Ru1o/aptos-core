@@ -55,7 +55,7 @@ use crate::{
 use anyhow::{bail, ensure, Context};
 use aptos_bounded_executor::BoundedExecutor;
 use aptos_channels::{aptos_channel, message_queues::QueueStyle};
-use aptos_config::config::{ConsensusConfig, NodeConfig, SecureBackend};
+use aptos_config::config::{ConsensusConfig, NodeConfig, QcAggregatorType, SecureBackend};
 use aptos_consensus_types::{
     common::{Author, Round},
     epoch_retrieval::EpochRetrievalRequest,
@@ -215,6 +215,7 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
             (Author, Discriminant<VerifiedEvent>),
             (Author, VerifiedEvent),
         >,
+        qc_aggregator_type: QcAggregatorType,
     ) -> RoundState {
         let time_interval = Box::new(ExponentialTimeInterval::new(
             Duration::from_millis(self.config.round_initial_timeout_ms),
@@ -226,6 +227,7 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
             time_service,
             timeout_sender,
             round_manager_tx,
+            qc_aggregator_type,
         )
     }
 
@@ -760,6 +762,7 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
             self.time_service.clone(),
             self.timeout_sender.clone(),
             round_manager_tx.clone(),
+            self.config.qc_aggregator_type.clone(),
         );
 
         info!(epoch = epoch, "Create ProposerElection");

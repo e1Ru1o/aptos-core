@@ -29,7 +29,7 @@ use crate::{
 };
 use aptos_channels::{self, aptos_channel, message_queues::QueueStyle};
 use aptos_config::{
-    config::ConsensusConfig,
+    config::{ConsensusConfig, QcAggregatorType},
     network_id::{NetworkId, PeerNetworkId},
 };
 use aptos_consensus_types::{
@@ -122,6 +122,7 @@ impl NodeSetup {
             time_service,
             round_timeout_sender,
             round_manager_tx,
+            QcAggregatorType::NoDelay,
         )
     }
 

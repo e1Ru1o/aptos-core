@@ -10,6 +10,7 @@ use crate::{
 };
 use anyhow::bail;
 use aptos_channels::aptos_channel;
+use aptos_config::config::QcAggregatorType;
 use aptos_consensus_types::{
     common::{Author, Round},
     delayed_qc_msg::DelayedQcMsg,
@@ -170,6 +171,8 @@ pub struct RoundState {
     // Self sender to send delayed QC aggregation events to the round manager.
     round_manager_tx:
         aptos_channel::Sender<(Author, Discriminant<VerifiedEvent>), (Author, VerifiedEvent)>,
+
+    qc_aggregator_type: QcAggregatorType,
 }
 
 #[derive(Default, Schema)]
@@ -202,6 +205,7 @@ impl RoundState {
             (Author, Discriminant<VerifiedEvent>),
             (Author, VerifiedEvent),
         >,
+        qc_aggregator_type: QcAggregatorType,
     ) -> Self {
         // Our counters are initialized lazily, so they're not going to appear in
         // Prometheus if some conditions never happen. Invoking get() function enforces creation.
@@ -209,7 +213,11 @@ impl RoundState {
         counters::TIMEOUT_ROUNDS_COUNT.get();
         counters::TIMEOUT_COUNT.get();
 
-        let pending_votes = PendingVotes::new(time_service.clone(), round_manager_tx.clone());
+        let pending_votes = PendingVotes::new(
+            time_service.clone(),
+            round_manager_tx.clone(),
+            qc_aggregator_type.clone(),
+        );
 
         Self {
             time_interval,
@@ -222,6 +230,7 @@ impl RoundState {
             vote_sent: None,
             abort_handle: None,
             round_manager_tx,
+            qc_aggregator_type,
         }
     }
 
@@ -264,8 +273,11 @@ impl RoundState {
 
             // Start a new round.
             self.current_round = new_round;
-            self.pending_votes =
-                PendingVotes::new(self.time_service.clone(), self.round_manager_tx.clone());
+            self.pending_votes = PendingVotes::new(
+                self.time_service.clone(),
+                self.round_manager_tx.clone(),
+                self.qc_aggregator_type.clone(),
+            );
             self.vote_sent = None;
             let timeout = self.setup_timeout(1);
             // The new round reason is QCReady in case both QC.round + 1 == new_round, otherwise

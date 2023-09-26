@@ -8,6 +8,7 @@ use crate::{
     util::time_service::TimeService,
 };
 use aptos_channels::aptos_channel;
+use aptos_config::config::{DelayedQcAggregatorConfig, QcAggregatorType};
 use aptos_consensus_types::{common::Author, delayed_qc_msg::DelayedQcMsg, vote::Vote};
 use aptos_logger::error;
 use aptos_types::{
@@ -32,8 +33,31 @@ pub trait QcAggregator: Send + Sync {
 
 struct NoDelayQcAggregator {}
 
-pub fn create_qc_aggregator() -> Box<dyn QcAggregator> {
-    Box::new(NoDelayQcAggregator {})
+pub fn create_qc_aggregator(
+    qc_aggregator_type: QcAggregatorType,
+    time_service: Arc<dyn TimeService>,
+    round_manager_tx: aptos_channel::Sender<
+        (Author, Discriminant<VerifiedEvent>),
+        (Author, VerifiedEvent),
+    >,
+) -> Box<dyn QcAggregator> {
+    match qc_aggregator_type {
+        QcAggregatorType::NoDelay => Box::new(NoDelayQcAggregator {}),
+        QcAggregatorType::Delayed(delay_config) => {
+            let DelayedQcAggregatorConfig {
+                max_delay_after_round_start_ms,
+                aggregated_voting_power_pct_to_wait,
+                pct_delay_after_qc_aggregated,
+            } = delay_config;
+            Box::new(DelayedQcAggregator::new(
+                Duration::from_millis(max_delay_after_round_start_ms),
+                aggregated_voting_power_pct_to_wait,
+                pct_delay_after_qc_aggregated,
+                time_service,
+                round_manager_tx,
+            ))
+        },
+    }
 }
 
 impl QcAggregator for NoDelayQcAggregator {
@@ -110,6 +134,9 @@ impl QcAggregator for DelayedQcAggregator {
             aggregated_voting_power >= validator_verifier.quorum_voting_power(),
             "QC aggregation should not be triggered if we don't have enough votes to form a QC"
         );
+        let current_time = self.time_service.get_current_timestamp();
+
+        // If we have reached the aggregated voting power threshold, we should aggregate the QC now.
         if aggregated_voting_power
             >= self.aggregated_voting_power_pct_to_wait as u128
                 * validator_verifier.total_voting_power()
@@ -123,12 +150,13 @@ impl QcAggregator for DelayedQcAggregator {
             );
         }
 
-        // If we have already triggered a delayed QC aggregation event, we should not trigger another one.
+        // If we have not reached the aggregated voting power threshold and have
+        // already triggered a delayed QC aggregation event, we should not trigger another
+        // one.
         if self.qc_aggregation_delayed {
             return VoteReceptionResult::VoteAddedQCDelayed(aggregated_voting_power);
         }
 
-        let current_time = self.time_service.get_current_timestamp();
         let time_since_round_start = current_time - self.round_start_time;
         if time_since_round_start >= self.max_delay_after_round_start {
             return PendingVotes::aggregate_qc_now(

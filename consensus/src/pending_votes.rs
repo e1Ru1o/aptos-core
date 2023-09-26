@@ -15,6 +15,7 @@ use crate::{
     util::time_service::TimeService,
 };
 use aptos_channels::aptos_channel;
+use aptos_config::config::QcAggregatorType;
 use aptos_consensus_types::{
     common::Author,
     quorum_cert::QuorumCert,
@@ -81,26 +82,24 @@ pub struct PendingVotes {
     echo_timeout: bool,
 
     qc_aggregator: Box<dyn QcAggregator>,
-
-    time_service: Arc<dyn TimeService>,
 }
 
 impl PendingVotes {
     /// Creates an empty PendingVotes structure for a specific epoch and round
     pub fn new(
         time_service: Arc<dyn TimeService>,
-        _round_manager_tx: aptos_channel::Sender<
+        round_manager_tx: aptos_channel::Sender<
             (Author, Discriminant<VerifiedEvent>),
             (Author, VerifiedEvent),
         >,
+        qc_aggregator_type: QcAggregatorType,
     ) -> Self {
         PendingVotes {
             li_digest_to_votes: HashMap::new(),
             maybe_partial_2chain_tc: None,
             author_to_vote: HashMap::new(),
             echo_timeout: false,
-            qc_aggregator: create_qc_aggregator(),
-            time_service,
+            qc_aggregator: create_qc_aggregator(qc_aggregator_type, time_service, round_manager_tx),
         }
     }
 
@@ -403,6 +402,7 @@ mod tests {
     use super::{PendingVotes, VoteReceptionResult};
     use crate::{counters, util::mock_time_service::SimulatedTimeService};
     use aptos_channels::{aptos_channel, message_queues::QueueStyle};
+    use aptos_config::config::QcAggregatorType;
     use aptos_consensus_types::{
         block::block_test_utils::certificate_for_genesis, vote::Vote, vote_data::VoteData,
     };
@@ -440,8 +440,11 @@ mod tests {
             1,
             Some(&counters::ROUND_MANAGER_CHANNEL_MSGS),
         );
-        let mut pending_votes =
-            PendingVotes::new(Arc::new(SimulatedTimeService::new()), round_manager_tx);
+        let mut pending_votes = PendingVotes::new(
+            Arc::new(SimulatedTimeService::new()),
+            round_manager_tx,
+            QcAggregatorType::NoDelay,
+        );
 
         // create random vote from validator[0]
         let li1 = random_ledger_info();
@@ -513,8 +516,11 @@ mod tests {
             1,
             Some(&counters::ROUND_MANAGER_CHANNEL_MSGS),
         );
-        let mut pending_votes =
-            PendingVotes::new(Arc::new(SimulatedTimeService::new()), round_manager_tx);
+        let mut pending_votes = PendingVotes::new(
+            Arc::new(SimulatedTimeService::new()),
+            round_manager_tx,
+            QcAggregatorType::NoDelay,
+        );
 
         // submit a new vote from validator[0] -> VoteAdded
         let li0 = random_ledger_info();

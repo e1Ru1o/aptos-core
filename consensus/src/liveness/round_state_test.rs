@@ -10,6 +10,7 @@ use crate::{
     util::mock_time_service::SimulatedTimeService,
 };
 use aptos_channels::{aptos_channel, message_queues::QueueStyle};
+use aptos_config::config::QcAggregatorType;
 use aptos_consensus_types::{
     common::Round,
     quorum_cert::QuorumCert,
@@ -99,6 +100,7 @@ fn make_round_state() -> (RoundState, aptos_channels::Receiver<Round>) {
             Arc::new(simulated_time),
             timeout_tx,
             round_manager_tx,
+            QcAggregatorType::NoDelay,
         ),
         timeout_rx,
     )

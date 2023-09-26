@@ -4,6 +4,7 @@
 
 use crate::{
     block_storage::BlockStore,
+    counters,
     liveness::{
         proposal_generator::{
             ChainHealthBackoffConfig, PipelineBackpressureConfig, ProposalGenerator,
@@ -101,8 +102,19 @@ fn create_round_state() -> RoundState {
     let base_timeout = std::time::Duration::new(60, 0);
     let time_interval = Box::new(ExponentialTimeInterval::fixed(base_timeout));
     let (round_timeout_sender, _) = aptos_channels::new_test(1_024);
+    let (round_manager_tx, _) = aptos_channel::new(
+        QueueStyle::LIFO,
+        1,
+        Some(&counters::ROUND_MANAGER_CHANNEL_MSGS),
+    );
     let time_service = Arc::new(SimulatedTimeService::new());
-    RoundState::new(time_interval, time_service, round_timeout_sender)
+
+    RoundState::new(
+        time_interval,
+        time_service,
+        round_timeout_sender,
+        round_manager_tx,
+    )
 }
 
 // Creates an RoundManager for fuzzing

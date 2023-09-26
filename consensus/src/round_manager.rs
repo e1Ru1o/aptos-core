@@ -30,6 +30,7 @@ use aptos_config::config::ConsensusConfig;
 use aptos_consensus_types::{
     block::Block,
     common::{Author, Round},
+    delayed_qc_msg::DelayedQcMsg,
     proof_of_store::{ProofOfStoreMsg, SignedBatchInfoMsg},
     proposal_msg::ProposalMsg,
     quorum_cert::QuorumCert,
@@ -145,6 +146,7 @@ pub enum VerifiedEvent {
     // network messages
     ProposalMsg(Box<ProposalMsg>),
     VerifiedProposalMsg(Box<Block>),
+    VerifiedDelayedQcMsg(Box<DelayedQcMsg>),
     VoteMsg(Box<VoteMsg>),
     UnverifiedSyncInfo(Box<SyncInfo>),
     BatchMsg(Box<BatchMsg>),
@@ -433,6 +435,20 @@ impl RoundManager {
         }
 
         self.process_verified_proposal(proposal).await
+    }
+
+    pub async fn process_delayed_qc_msg(&mut self, msg: DelayedQcMsg) -> anyhow::Result<()> {
+        if msg.round() != self.round_state.current_round() {
+            bail!(
+                "Discarding stale delayed qc message {}, current round {}",
+                msg,
+                self.round_state.current_round()
+            );
+        }
+
+        todo!()
+
+        // self.process_verified_proposal(proposal).await
     }
 
     /// Sync to the sync info sending from peer if it has newer certificates.
@@ -1004,6 +1020,12 @@ impl RoundManager {
                     let result = match event {
                         VerifiedEvent::VoteMsg(vote_msg) => {
                             monitor!("process_vote", self.process_vote_msg(*vote_msg).await)
+                        }
+                        VerifiedEvent::VerifiedDelayedQcMsg(msg) => {
+                            monitor!(
+                                "process_delayed_qc",
+                                self.process_delayed_qc_msg(*msg).await
+                            )
                         }
                         VerifiedEvent::UnverifiedSyncInfo(sync_info) => {
                             monitor!(

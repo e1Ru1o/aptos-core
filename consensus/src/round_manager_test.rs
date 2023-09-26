@@ -4,6 +4,7 @@
 
 use crate::{
     block_storage::{BlockReader, BlockStore},
+    counters,
     experimental::buffer_manager::OrderedBlocks,
     liveness::{
         proposal_generator::{
@@ -111,7 +112,17 @@ impl NodeSetup {
         let base_timeout = Duration::new(60, 0);
         let time_interval = Box::new(ExponentialTimeInterval::fixed(base_timeout));
         let (round_timeout_sender, _) = aptos_channels::new_test(1_024);
-        RoundState::new(time_interval, time_service, round_timeout_sender)
+        let (round_manager_tx, _) = aptos_channel::new(
+            QueueStyle::LIFO,
+            1,
+            Some(&counters::ROUND_MANAGER_CHANNEL_MSGS),
+        );
+        RoundState::new(
+            time_interval,
+            time_service,
+            round_timeout_sender,
+            round_manager_tx,
+        )
     }
 
     fn create_proposer_election(proposers: Vec<Author>) -> Arc<dyn ProposerElection + Send + Sync> {

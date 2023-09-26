@@ -211,13 +211,22 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
         &self,
         time_service: Arc<dyn TimeService>,
         timeout_sender: aptos_channels::Sender<Round>,
+        round_manager_tx: aptos_channel::Sender<
+            (Author, Discriminant<VerifiedEvent>),
+            (Author, VerifiedEvent),
+        >,
     ) -> RoundState {
         let time_interval = Box::new(ExponentialTimeInterval::new(
             Duration::from_millis(self.config.round_initial_timeout_ms),
             self.config.round_timeout_backoff_exponent_base,
             self.config.round_timeout_backoff_max_exponent,
         ));
-        RoundState::new(time_interval, time_service, timeout_sender)
+        RoundState::new(
+            time_interval,
+            time_service,
+            timeout_sender,
+            round_manager_tx,
+        )
     }
 
     /// Create a proposer election handler based on proposers
@@ -740,10 +749,18 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
                 "Unable to initialize safety rules.",
             );
         }
+        let (round_manager_tx, round_manager_rx) = aptos_channel::new(
+            QueueStyle::LIFO,
+            1,
+            Some(&counters::ROUND_MANAGER_CHANNEL_MSGS),
+        );
 
         info!(epoch = epoch, "Create RoundState");
-        let round_state =
-            self.create_round_state(self.time_service.clone(), self.timeout_sender.clone());
+        let round_state = self.create_round_state(
+            self.time_service.clone(),
+            self.timeout_sender.clone(),
+            round_manager_tx.clone(),
+        );
 
         info!(epoch = epoch, "Create ProposerElection");
         let proposer_election =
@@ -806,11 +823,6 @@ impl<P: OnChainConfigProvider> EpochManager<P> {
             self.quorum_store_enabled,
         );
 
-        let (round_manager_tx, round_manager_rx) = aptos_channel::new(
-            QueueStyle::LIFO,
-            1,
-            Some(&counters::ROUND_MANAGER_CHANNEL_MSGS),
-        );
 
         let (proposal_precheck_tx, mut proposal_precheck_rx) = aptos_channel::new(
             QueueStyle::FIFO,

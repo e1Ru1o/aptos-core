@@ -137,7 +137,8 @@ impl QcAggregator for DelayedQcAggregator {
             // Voting power is u128 so there is no overflow here.
             info!(
                 "QC aggregation triggered by aggregated voting power: {}",
-                aggregated_voting_power)
+                aggregated_voting_power
+            );
             return PendingVotes::aggregate_qc_now(
                 validator_verifier,
                 li_with_sig,
@@ -156,7 +157,8 @@ impl QcAggregator for DelayedQcAggregator {
         if time_since_round_start >= self.max_delay_after_round_start {
             info!(
                 "QC aggregation triggered by time: {} ms",
-                time_since_round_start.as_millis());
+                time_since_round_start.as_millis()
+            );
             return PendingVotes::aggregate_qc_now(
                 validator_verifier,
                 li_with_sig,
@@ -176,7 +178,8 @@ impl QcAggregator for DelayedQcAggregator {
         info!(
             "QC aggregation delayed by {} ms, wait time: {} ms",
             time_since_round_start.as_millis(),
-            wait_time.as_millis());
+            wait_time.as_millis()
+        );
 
         tokio::spawn(async move {
             sleep(wait_time).await;

@@ -441,8 +441,8 @@ impl RoundManager {
         if msg.vote.vote_data().proposed().round() != self.round_state.current_round() {
             bail!(
                 "Discarding stale delayed QC for round {}, current round {}",
-                vote.vote_data().proposed().round(),
-                self.current_round()
+                msg.vote.vote_data().proposed().round(),
+                self.round_state.current_round()
             );
         }
         let vote = msg.vote().clone();
@@ -450,7 +450,10 @@ impl RoundManager {
             .round_state
             .process_delayed_qc_msg(&self.epoch_state.verifier, msg)
             .await;
-        info!("Received delayed QC message and vote reception result is {:?}", vote_reception_result);
+        info!(
+            "Received delayed QC message and vote reception result is {:?}",
+            vote_reception_result
+        );
         self.process_vote_reception_result(&vote, vote_reception_result)
             .await
     }

@@ -438,6 +438,13 @@ impl RoundManager {
     }
 
     pub async fn process_delayed_qc_msg(&mut self, msg: DelayedQcMsg) -> anyhow::Result<()> {
+        if msg.vote.vote_data().proposed().round() != self.round_state.current_round() {
+            bail!(
+                "Discarding stale delayed QC for round {}, current round {}",
+                vote.vote_data().proposed().round(),
+                self.current_round()
+            );
+        }
         let vote = msg.vote().clone();
         let vote_reception_result = self
             .round_state

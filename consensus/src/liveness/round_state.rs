@@ -326,14 +326,6 @@ impl RoundState {
         msg: DelayedQcMsg,
     ) -> VoteReceptionResult {
         let DelayedQcMsg { vote } = msg;
-        if vote.vote_data().proposed().round() != self.current_round {
-            warn!(
-                "Discarding stale delayed for round {}, current round {}",
-                vote.vote_data().proposed().round(),
-                self.current_round()
-            );
-        }
-
         self.pending_votes
             .process_delayed_qc(validator_verifier, vote)
     }

@@ -25,6 +25,8 @@ use lru::LruCache;
 use move_binary_format::file_format::CompiledModule;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use aptos_language_e2e_tests::{data_store::FakeDataStore};
+use move_core_types::resolver::ModuleResolver;
 
 // TODO(skedia) Clean up this interfact to remove account specific logic and move to state store
 // key-value interface with fine grained storage project
@@ -125,6 +127,7 @@ pub trait AptosValidatorInterface: Sync {
 pub struct DebuggerStateView {
     query_sender:
         Mutex<UnboundedSender<(StateKey, Version, std::sync::mpsc::Sender<Option<Vec<u8>>>)>>,
+    fake_data: Option<FakeDataStore>,
     version: Version,
 }
 
@@ -175,7 +178,23 @@ impl DebuggerStateView {
         Self {
             query_sender: Mutex::new(query_sender),
             version,
+            fake_data: None,
         }
+    }
+
+    pub fn new_with_fake_data(db: Arc<dyn AptosValidatorInterface + Send>, version: Version, fake_data: FakeDataStore) -> Self {
+        let (query_sender, thread_receiver) = unbounded_channel();
+
+        tokio::spawn(async move { handler_thread(db, thread_receiver).await });
+        Self {
+            query_sender: Mutex::new(query_sender),
+            version,
+            fake_data: Some(fake_data),
+        }
+    }
+
+    pub fn fake_data_mut(&mut self) -> &mut Option<FakeDataStore> {
+        &mut self.fake_data
     }
 
     fn get_state_value_internal(
@@ -197,6 +216,13 @@ impl TStateView for DebuggerStateView {
     type Key = StateKey;
 
     fn get_state_value(&self, state_key: &StateKey) -> Result<Option<StateValue>> {
+        panic!("state key:{:?}", state_key);
+        if let Some(data) = &self.fake_data {
+            if data.contains_key(state_key) {
+                println!("get code module:{:?}", state_key);
+                return data.get_state_value(state_key);
+            }
+        }
         self.get_state_value_internal(state_key, self.version)
     }
 
@@ -204,3 +230,13 @@ impl TStateView for DebuggerStateView {
         unimplemented!()
     }
 }
+
+// impl ModuleResolver for DebuggerStateView {
+//     fn get_module_metadata(&self, _module_id: &ModuleId) -> Vec<Metadata> {
+//         vec![]
+//     }
+//
+//     fn get_module(&self, module_id: &ModuleId) -> Result<Option<Bytes>, anyhow::Error> {
+//         self.get_module_bytes(module_id)
+//     }
+// }

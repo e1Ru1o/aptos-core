@@ -19,7 +19,7 @@ use aptos_types::{
     },
     vm_status::VMStatus,
 };
-use aptos_framework::{BuildOptions, BuiltPackage, APTOS_COMMONS};
+use aptos_framework::{BuildOptions, BuiltPackage, APTOS_COMMONS, STATE_DATA};
 use aptos_validator_interface::{
     AptosValidatorInterface, DBDebuggerInterface, DebuggerStateView, RestDebuggerInterface,
 };
@@ -37,16 +37,20 @@ use move_vm_types::gas::UnmeteredGasMeter;
 use move_package::{
     compilation::{compiled_package::CompiledPackage}};
 use std::{path::Path, sync::Arc};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::path::PathBuf;
-use std::io::Write;
+use std::io::{Read, Write};
 use aptos_framework::natives::code::PackageRegistry;
 use aptos_types::on_chain_config::TimedFeatureOverride;
 use aptos_types::state_store::state_key::StateKey;
 use move_binary_format::CompiledModule;
 use move_core_types::identifier::IdentStr;
-use aptos_language_e2e_tests::executor::FakeExecutor;
+use aptos_language_e2e_tests::{data_store::FakeDataStore, executor::FakeExecutor};
+use aptos_state_view::account_with_state_view::AsAccountWithStateView;
+use aptos_types::account_view::AccountView;
+use move_compiler::compiled_unit::CompiledUnitEnum;
+use move_core_types::value::MoveValue;
 
 
 pub struct AptosDebugger {
@@ -168,14 +172,18 @@ impl AptosDebugger {
             std::fs::create_dir_all(aptos_commons_path.as_path()).unwrap();
         }
 
-        let mut count = 1;
-        let batch_num = 100;
+        let mut state_data_path = PathBuf::from(".").join(STATE_DATA);
+        if !state_data_path.exists() {
+            std::fs::create_dir_all(state_data_path.as_path()).unwrap();
+        }
+
+        let mut count = 0;
+        let batch_num = 1;
         let mut package_registry_cache: BTreeMap<AccountAddress, PackageRegistry> = BTreeMap::new();
         let mut compiled_package_cache: BTreeMap<(AccountAddress, String, Option<u64>), CompiledPackage> = BTreeMap::new();
 
         // Compile aptos packages
         BuiltPackage::compile_aptos_packages(&aptos_commons_path, &mut compiled_package_cache);
-
         while count < limit {
             println!("get txn at version:{}", cur_version);
             let v = self
@@ -204,63 +212,75 @@ impl AptosDebugger {
                     // Create a fake executor
                     let executor = FakeExecutor::from_head_genesis();
                     let mut executor = executor.set_not_parallel();
+                    *executor.data_store_mut() = FakeDataStore::new(HashMap::new());
 
-                    // Add pre-execution state to the fake executor
-                    for output in &epoch_result {
+                    // Populate the pre-state in the executor
+                    let state_path = PathBuf::from(".").join(STATE_DATA).join(format!("{}_state", version));
+                    // If the state has not been dumped, get the state and dump it
+                    if !state_path.exists() {
+                        // Add pre-execution state to the fake executor
+                        let output = &epoch_result[0];
+                        println!("output at version {}:{:?}", version, output);
                         let state = output.write_set().clone();
                         for (state_key, _) in state.into_iter() {
                             let state_value_res = state_view.get_state_value(&state_key);
                             if let Ok(Some(state_value)) = state_value_res {
-                                executor.set(state_key.clone(), state_value);
+                                // executor.set(state_key.clone(), state_value);
                             }
                         }
+                        let mut file = File::create(state_path).unwrap();
+                        file.write_all(&bcs::to_bytes(&executor.data_store()).unwrap()).unwrap();
+                    } else { // Retrieve the state
+                        println!("deser data....");
+                        let mut file = File::open(state_path).unwrap();
+                        // read the same file back into a Vec of bytes
+                        let mut buffer = Vec::<u8>::new();
+                        file.read_to_end(&mut buffer).unwrap();
+                        let state = bcs::from_bytes::<FakeDataStore>(&buffer).unwrap();
+                        *executor.data_store_mut() = state;
                     }
 
-                    let package = map.get(&(addr, package_name.clone())).unwrap();
+                    // Dump and compile the source code if necessary
                     if !BuiltPackage::is_aptos_package(&package_name) {
+                        let package = map.get(&(addr, package_name.clone())).unwrap();
                         println!("package name:{}", package_name);
                         if !compiled_package_cache.contains_key(&(addr, package_name.clone(), Some(package.upgrade_number))) {
                             BuiltPackage::unzip_and_dump_source_from_package_metadata(package_name.clone(), addr, package.upgrade_number, &map, &mut compiled_package_cache).unwrap();
                         }
                     }
+                    let upgrade_number = if BuiltPackage::is_aptos_package(&package_name) {
+                        None
+                    } else {
+                        let package = map.get(&(addr, package_name.clone())).unwrap();
+                        Some(package.upgrade_number)
+                    };
                     // Execute the txn with compiled module
-                    if compiled_package_cache.contains_key(&(addr, package_name.clone(), Some(package.upgrade_number))) {
-                        let compiled_package = compiled_package_cache.get(&(addr, package_name.clone(), Some(package.upgrade_number))).unwrap();
+                    if compiled_package_cache.contains_key(&(addr, package_name.clone(), upgrade_number)) {
+                        let compiled_package = compiled_package_cache.get(&(addr, package_name.clone(), upgrade_number)).unwrap();
                         if let Transaction::UserTransaction(signed_trans) = txn {
+                            let sender = signed_trans.sender();
+                            let signer = MoveValue::Signer(sender).simple_serialize();
                             let payload = signed_trans.payload();
                             if let TransactionPayload::EntryFunction(entry_function) =
                             payload {
-                                let compiled_module = compiled_package.get_module_by_name(&package_name.clone(), &entry_function.module().name().to_string()).unwrap();
-                                let module_blob = compiled_module.unit.serialize(None);
-                                executor.add_module(&entry_function.module(), module_blob);
-                                let res = executor.try_exec(entry_function.module().name().as_str(), entry_function.function().as_str(), entry_function.ty_args().to_vec(), entry_function.args().to_vec());
-                                epoch_result.
-                                    //return session.execute_function_bypass_visibility(entry_function.module(), entry_function.function(),
-                                    //                                                  entry_function.ty_args().to_vec(), entry_function.args().to_vec(), &mut UnmeteredGasMeter).map(|_| ());
+                                //let compiled_module = compiled_package.get_module_by_name(&package_name.clone(), &entry_function.module().name().to_string()).unwrap();
+                                let root_modules = compiled_package.all_modules();
+                                for compiled_module in root_modules {
+                                    if let CompiledUnitEnum::Module(module) = &compiled_module.unit {
+                                        let module_blob = compiled_module.unit.serialize(None);
+                                        executor.add_module(&module.module.self_id(), module_blob);
+                                    }
+                                }
+                                let mut args = entry_function.args().to_vec();
+                                args.insert(0, signer.unwrap());
+                                let state_view = DebuggerStateView::new_with_fake_data(self.debugger.clone(), version, executor.data_store().clone());
+                                let state_view_storage = state_view.as_move_resolver();
+                                let features = Features::fetch_config(&state_view_storage).unwrap_or_default();
+                                let res = executor.try_exec_with_debugger(entry_function.module().name().as_str(), entry_function.function().as_str(), entry_function.ty_args().to_vec(), args, state_view_storage, features);
+                                println!("sender:{}, execution result at {} :{:?}", sender, version, res);
                             }
                         }
-
-                        // let exec_entry = |session: &mut SessionExt| -> VMResult<()> {
-                        //     if let Transaction::UserTransaction(signed_trans) = txn {
-                        //         let payload = signed_trans.payload();
-                        //         if let TransactionPayload::EntryFunction(entry_function) =
-                        //         payload {
-                        //             let compiled_module = compiled_package.get_module_by_name(&package_name.clone(), &entry_function.module().name().to_string()).unwrap();
-                        //             let ser_module = compiled_module.serialize();
-                        //             //return session.execute_function_bypass_visibility(entry_function.module(), entry_function.function(),
-                        //             //                                                  entry_function.ty_args().to_vec(), entry_function.args().to_vec(), &mut UnmeteredGasMeter).map(|_| ());
-                        //         }
-                        //     }
-                        //     Ok(())
-                        // };
-                        //let _change_set = self.run_session_at_version(cur_version.clone(), exec_entry).unwrap();
                     }
-                    // let mut build_options = BuildOptions::default();
-                    // build_options.named_addresses.insert(package_name.clone(), addr.clone());
-                    // let root_package_dir = PathBuf::from(".")
-                    //     .join(format!("{}.{}.{}", package_name, addr, package.upgrade_number));
-                    // let compiled_package = BuiltPackage::build(root_package_dir, build_options);
-                    //
                 }
 
             }

@@ -55,6 +55,10 @@ impl FakeDataStore {
         }
     }
 
+    pub fn size(&self) -> usize {
+        self.state_data.len()
+    }
+
     /// Adds a [`WriteSet`] to this data store.
     pub fn add_write_set(&mut self, write_set: &WriteSet) {
         for (state_key, write_op) in write_set {
@@ -78,6 +82,12 @@ impl FakeDataStore {
     /// Returns the previous data if the key was occupied.
     pub fn set(&mut self, state_key: StateKey, state_value: StateValue) -> Option<StateValue> {
         self.state_data.insert(state_key, state_value)
+    }
+
+    /// Check whether the state_key is in this data store
+    ///
+    pub fn contains_key(&self, state_key: &StateKey) -> bool {
+        self.state_data.contains_key(state_key)
     }
 
     /// Deletes a key from this data store.
@@ -105,6 +115,7 @@ impl FakeDataStore {
     /// Does not do any sort of verification on the module.
     pub fn add_module(&mut self, module_id: &ModuleId, blob: Vec<u8>) {
         let access_path = AccessPath::from(module_id);
+        println!("add module path:{}", access_path);
         self.set(
             StateKey::access_path(access_path),
             StateValue::new_legacy(blob.into()),

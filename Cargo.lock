@@ -1124,6 +1124,7 @@ dependencies = [
  "move-vm-test-utils",
  "move-vm-types",
  "regex",
+ "serde_json",
  "tokio",
  "url",
 ]
@@ -3783,6 +3784,7 @@ dependencies = [
  "aptos-config",
  "aptos-db",
  "aptos-framework",
+ "aptos-language-e2e-tests",
  "aptos-rest-client",
  "aptos-state-view",
  "aptos-storage-interface",
@@ -4359,7 +4361,7 @@ checksum = "5fd55a5ba1179988837d24ab4c7cc8ed6efdeff578ede0416b4225a5fca35bd0"
 dependencies = [
  "proc-macro2 1.0.64",
  "quote 1.0.29",
- "syn 2.0.25",
+ "syn 2.0.32",
 ]
 
 [[package]]

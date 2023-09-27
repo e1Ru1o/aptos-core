@@ -512,7 +512,6 @@ impl ResolvingGraph {
         // println!("new path:{:?}", root_path.join(SourcePackageLayout::Manifest.path()));
         match fs::read_to_string(root_path.join(SourcePackageLayout::Manifest.path())) {
             Ok(contents) => {
-                println!("contents:{}", contents);
                 let source_package: SourceManifest =
                     parse_move_manifest_string(contents).and_then(parse_source_manifest)?;
                 Ok((source_package, root_path))

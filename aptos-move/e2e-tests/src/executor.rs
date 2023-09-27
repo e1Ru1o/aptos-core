@@ -26,7 +26,7 @@ use aptos_gas_schedule::{
 };
 use aptos_keygen::KeyGen;
 use aptos_memory_usage_tracker::MemoryTrackedGasMeter;
-use aptos_state_view::TStateView;
+use aptos_state_view::{StateView, TStateView};
 use aptos_types::{
     access_path::AccessPath,
     account_config::{
@@ -73,6 +73,11 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
+use aptos_types::on_chain_config::ConfigStorage;
+use aptos_vm::data_cache::StorageAdapter;
+use aptos_vm::move_vm_ext::AptosMoveResolver;
+use aptos_vm::storage_adapter::ExecutorViewBase;
+
 static RNG_SEED: [u8; 32] = [9u8; 32];
 
 const ENV_TRACE_DIR: &str = "TRACE";
@@ -190,6 +195,13 @@ impl FakeExecutor {
     pub fn data_store(&self) -> &FakeDataStore {
         &self.data_store
     }
+
+    pub fn event_store(&self) -> &Vec<ContractEvent> { &self.event_store }
+
+    pub fn data_store_mut(&mut self) -> &mut FakeDataStore {
+        &mut self.data_store
+    }
+
 
     /// Creates an executor in which no genesis state has been applied yet.
     pub fn no_genesis() -> Self {
@@ -927,6 +939,52 @@ impl FakeExecutor {
         args: Vec<Vec<u8>>,
     ) {
         self.exec_module(&Self::module(module_name), function_name, type_params, args)
+    }
+
+
+    pub fn try_exec_with_debugger<S>(
+        &mut self,
+        module_name: &str,
+        function_name: &str,
+        type_params: Vec<TypeTag>,
+        args: Vec<Vec<u8>>,
+        resolver: StorageAdapter<ExecutorViewBase<S>>,
+        features: Features
+    ) -> Result<(WriteSet, Vec<ContractEvent>), VMStatus>
+    where S: StateView {
+        let vm = MoveVmExt::new(
+            NativeGasParameters::zeros(),
+            MiscGasParameters::zeros(),
+            LATEST_GAS_FEATURE_VERSION,
+            self.chain_id,
+            features,
+            TimedFeatures::enable_all(),
+            &resolver,
+        )
+            .unwrap();
+        let mut session = vm.new_session(&resolver, SessionId::void());
+        session
+            .execute_function_bypass_visibility(
+                &Self::module(module_name),
+                &Self::name(function_name),
+                type_params,
+                args,
+                &mut UnmeteredGasMeter,
+            )
+            .map_err(|e| e.into_vm_status())?;
+
+        let change_set = session
+            .finish(
+                &mut (),
+                &ChangeSetConfigs::unlimited_at_gas_feature_version(LATEST_GAS_FEATURE_VERSION),
+            )
+            .expect("Failed to generate txn effects");
+        // TODO: Support deltas in fake executor.
+        let (write_set, events) = change_set
+            .try_into_storage_change_set()
+            .expect("Failed to convert to ChangeSet")
+            .into_inner();
+        Ok((write_set, events))
     }
 
     pub fn try_exec(

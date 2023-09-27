@@ -30,3 +30,4 @@ move-binary-format = { workspace = true }
 move-core-types = { workspace = true }
 tokio = { workspace = true }
 async-recursion = { workspace = true }
+aptos-language-e2e-tests = { workspace = true }

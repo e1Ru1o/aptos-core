@@ -40,6 +40,7 @@ pub const UPGRADE_POLICY_CUSTOM_FIELD: &str = "upgrade_policy";
 
 const APTOS_PACKAGES: [&str; 5] = ["AptosFramework", "MoveStdlib", "AptosStdlib", "AptosToken", "AptosTokenObjects"];
 pub const APTOS_COMMONS: &str = "aptos-commons";
+pub const STATE_DATA: &str = "state_data";
 
 /// Represents a set of options for building artifacts from Move.
 #[derive(Debug, Clone, Parser, Serialize, Deserialize)]

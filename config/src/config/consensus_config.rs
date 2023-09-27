@@ -78,7 +78,7 @@ impl Default for QcAggregatorType {
     fn default() -> Self {
         QcAggregatorType::Delayed(DelayedQcAggregatorConfig {
             max_delay_after_round_start_ms: 750,
-            aggregated_voting_power_pct_to_wait: 95,
+            aggregated_voting_power_pct_to_wait: 90,
             pct_delay_after_qc_aggregated: 30,
         })
     }

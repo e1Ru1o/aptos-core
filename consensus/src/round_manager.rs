@@ -450,6 +450,7 @@ impl RoundManager {
             .round_state
             .process_delayed_qc_msg(&self.epoch_state.verifier, msg)
             .await;
+        info!("Received delayed QC message and vote reception result is {:?}", vote_reception_result);
         self.process_vote_reception_result(&vote, vote_reception_result)
             .await
     }

@@ -10,7 +10,7 @@ use crate::{
 use aptos_channels::aptos_channel;
 use aptos_config::config::{DelayedQcAggregatorConfig, QcAggregatorType};
 use aptos_consensus_types::{common::Author, delayed_qc_msg::DelayedQcMsg, vote::Vote};
-use aptos_logger::error;
+use aptos_logger::{error, info};
 use aptos_types::{
     ledger_info::LedgerInfoWithPartialSignatures, validator_verifier::ValidatorVerifier,
 };
@@ -135,6 +135,9 @@ impl QcAggregator for DelayedQcAggregator {
                 / 100
         {
             // Voting power is u128 so there is no overflow here.
+            info!(
+                "QC aggregation triggered by aggregated voting power: {}",
+                aggregated_voting_power)
             return PendingVotes::aggregate_qc_now(
                 validator_verifier,
                 li_with_sig,
@@ -151,6 +154,9 @@ impl QcAggregator for DelayedQcAggregator {
 
         let time_since_round_start = current_time - self.round_start_time;
         if time_since_round_start >= self.max_delay_after_round_start {
+            info!(
+                "QC aggregation triggered by time: {} ms",
+                time_since_round_start.as_millis());
             return PendingVotes::aggregate_qc_now(
                 validator_verifier,
                 li_with_sig,
@@ -166,6 +172,11 @@ impl QcAggregator for DelayedQcAggregator {
         self.qc_aggregation_delayed = true;
 
         let self_sender = self.round_manager_tx.clone();
+
+        info!(
+            "QC aggregation delayed by {} ms, wait time: {} ms",
+            time_since_round_start.as_millis(),
+            wait_time.as_millis());
 
         tokio::spawn(async move {
             sleep(wait_time).await;

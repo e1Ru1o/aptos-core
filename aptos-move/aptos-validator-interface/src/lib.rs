@@ -127,7 +127,6 @@ pub trait AptosValidatorInterface: Sync {
 pub struct DebuggerStateView {
     query_sender:
         Mutex<UnboundedSender<(StateKey, Version, std::sync::mpsc::Sender<Option<Vec<u8>>>)>>,
-    fake_data: Option<FakeDataStore>,
     version: Version,
 }
 
@@ -138,6 +137,7 @@ async fn handler_thread<'a>(
         Version,
         std::sync::mpsc::Sender<Option<Vec<u8>>>,
     )>,
+    fake_data: Option<FakeDataStore>,
 ) {
     const M: usize = 1024 * 1024;
     let cache = Arc::new(Mutex::new(
@@ -150,7 +150,17 @@ async fn handler_thread<'a>(
             } else {
                 break;
             };
+        if let Some(data) = &fake_data {
+            if data.contains_key(&key) {
+                println!("get code module:{:?}", key);
+                let val_opt = data.get_state_value(&key).unwrap();
+                if let Some(val) = val_opt {
+                    sender.send(Some(val.bytes().to_vec())).unwrap();
+                    continue;
+                }
 
+            }
+        }
         if let Some(val) = cache.lock().unwrap().get(&(key.clone(), version)) {
             sender.send(val.clone()).unwrap();
         } else {
@@ -174,28 +184,26 @@ impl DebuggerStateView {
     pub fn new(db: Arc<dyn AptosValidatorInterface + Send>, version: Version) -> Self {
         let (query_sender, thread_receiver) = unbounded_channel();
 
-        tokio::spawn(async move { handler_thread(db, thread_receiver).await });
+        tokio::spawn(async move { handler_thread(db, thread_receiver, None).await });
         Self {
             query_sender: Mutex::new(query_sender),
             version,
-            fake_data: None,
         }
     }
 
     pub fn new_with_fake_data(db: Arc<dyn AptosValidatorInterface + Send>, version: Version, fake_data: FakeDataStore) -> Self {
         let (query_sender, thread_receiver) = unbounded_channel();
 
-        tokio::spawn(async move { handler_thread(db, thread_receiver).await });
+        tokio::spawn(async move { handler_thread(db, thread_receiver, Some(fake_data.clone())).await });
         Self {
             query_sender: Mutex::new(query_sender),
             version,
-            fake_data: Some(fake_data),
         }
     }
 
-    pub fn fake_data_mut(&mut self) -> &mut Option<FakeDataStore> {
-        &mut self.fake_data
-    }
+    // pub fn fake_data_mut(&mut self) -> &mut Option<FakeDataStore> {
+    //     &mut self.fake_data
+    // }
 
     fn get_state_value_internal(
         &self,
@@ -216,13 +224,13 @@ impl TStateView for DebuggerStateView {
     type Key = StateKey;
 
     fn get_state_value(&self, state_key: &StateKey) -> Result<Option<StateValue>> {
-        panic!("state key:{:?}", state_key);
-        if let Some(data) = &self.fake_data {
-            if data.contains_key(state_key) {
-                println!("get code module:{:?}", state_key);
-                return data.get_state_value(state_key);
-            }
-        }
+        // println!("state key:{:?}", state_key);
+        // if let Some(data) = &self.fake_data {
+        //     if data.contains_key(state_key) {
+        //         println!("get code module:{:?}", state_key);
+        //         return data.get_state_value(state_key);
+        //     }
+        // }
         self.get_state_value_internal(state_key, self.version)
     }
 
@@ -230,13 +238,3 @@ impl TStateView for DebuggerStateView {
         unimplemented!()
     }
 }
-
-// impl ModuleResolver for DebuggerStateView {
-//     fn get_module_metadata(&self, _module_id: &ModuleId) -> Vec<Metadata> {
-//         vec![]
-//     }
-//
-//     fn get_module(&self, module_id: &ModuleId) -> Result<Option<Bytes>, anyhow::Error> {
-//         self.get_module_bytes(module_id)
-//     }
-// }

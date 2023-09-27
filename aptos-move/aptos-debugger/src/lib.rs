@@ -204,41 +204,41 @@ impl AptosDebugger {
 
                     // Obtain the state before execution
                     let state_view = DebuggerStateView::new(self.debugger.clone(), version);
-                    let mut epoch_result = self
-                        .execute_transactions_by_epoch(version, vec![txn.clone()])
-                        .await.unwrap();
-                    assert_eq!(epoch_result.len(), 1);
+                    // let mut epoch_result = self
+                    //     .execute_transactions_by_epoch(version, vec![txn.clone()])
+                    //     .await.unwrap();
+                    // assert_eq!(epoch_result.len(), 1);
 
                     // Create a fake executor
                     let executor = FakeExecutor::from_head_genesis();
                     let mut executor = executor.set_not_parallel();
                     *executor.data_store_mut() = FakeDataStore::new(HashMap::new());
 
-                    // Populate the pre-state in the executor
-                    let state_path = PathBuf::from(".").join(STATE_DATA).join(format!("{}_state", version));
-                    // If the state has not been dumped, get the state and dump it
-                    if !state_path.exists() {
-                        // Add pre-execution state to the fake executor
-                        let output = &epoch_result[0];
-                        println!("output at version {}:{:?}", version, output);
-                        let state = output.write_set().clone();
-                        for (state_key, _) in state.into_iter() {
-                            let state_value_res = state_view.get_state_value(&state_key);
-                            if let Ok(Some(state_value)) = state_value_res {
-                                // executor.set(state_key.clone(), state_value);
-                            }
-                        }
-                        let mut file = File::create(state_path).unwrap();
-                        file.write_all(&bcs::to_bytes(&executor.data_store()).unwrap()).unwrap();
-                    } else { // Retrieve the state
-                        println!("deser data....");
-                        let mut file = File::open(state_path).unwrap();
-                        // read the same file back into a Vec of bytes
-                        let mut buffer = Vec::<u8>::new();
-                        file.read_to_end(&mut buffer).unwrap();
-                        let state = bcs::from_bytes::<FakeDataStore>(&buffer).unwrap();
-                        *executor.data_store_mut() = state;
-                    }
+                    // // Populate the pre-state in the executor
+                    // let state_path = PathBuf::from(".").join(STATE_DATA).join(format!("{}_state", version));
+                    // // If the state has not been dumped, get the state and dump it
+                    // if !state_path.exists() {
+                    //     // Add pre-execution state to the fake executor
+                    //     let output = &epoch_result[0];
+                    //     println!("output at version {}:{:?}", version, output);
+                    //     let state = output.write_set().clone();
+                    //     for (state_key, _) in state.into_iter() {
+                    //         let state_value_res = state_view.get_state_value(&state_key);
+                    //         if let Ok(Some(state_value)) = state_value_res {
+                    //             // executor.set(state_key.clone(), state_value);
+                    //         }
+                    //     }
+                    //     let mut file = File::create(state_path).unwrap();
+                    //     file.write_all(&bcs::to_bytes(&executor.data_store()).unwrap()).unwrap();
+                    // } else { // Retrieve the state
+                    //     println!("deser data....");
+                    //     let mut file = File::open(state_path).unwrap();
+                    //     // read the same file back into a Vec of bytes
+                    //     let mut buffer = Vec::<u8>::new();
+                    //     file.read_to_end(&mut buffer).unwrap();
+                    //     let state = bcs::from_bytes::<FakeDataStore>(&buffer).unwrap();
+                    //     *executor.data_store_mut() = state;
+                    // }
 
                     // Dump and compile the source code if necessary
                     if !BuiltPackage::is_aptos_package(&package_name) {

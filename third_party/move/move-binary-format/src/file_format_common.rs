@@ -451,10 +451,12 @@ pub(crate) mod versioned_data {
                         .with_message("Bad binary header".to_string()));
                 },
             };
+            println!("version:{}", version);
             if version == 0
                 || (version > u32::min(max_version, VERSION_MAX)
                     && !(version == VERSION_EXPERIMENTAL && cfg!(feature = "testing")))
             {
+                println!("unknown version:{}", max_version);
                 return Err(PartialVMError::new(StatusCode::UNKNOWN_VERSION));
             }
             Ok((Self { version, binary }, cursor))

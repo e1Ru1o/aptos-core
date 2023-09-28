@@ -790,6 +790,7 @@ impl Loader {
     ) -> VMResult<Arc<Module>> {
         // if the module is already in the code cache, load the cached version
         if let Some(cached) = self.module_cache.read().module_at(id) {
+            println!("load cache");
             self.module_cache_hits.write().insert(id.clone());
             return Ok(cached);
         }
@@ -879,7 +880,7 @@ impl Loader {
             return Err(PartialVMError::new(StatusCode::CYCLIC_MODULE_DEPENDENCY)
                 .finish(Location::Undefined));
         }
-
+        println!("load and verify");
         // module self-check
         let module = self.load_and_verify_module(id, data_store, allow_module_loading_failure)?;
         visited.insert(id.clone());

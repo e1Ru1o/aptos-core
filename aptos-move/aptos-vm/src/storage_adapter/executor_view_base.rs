@@ -62,6 +62,7 @@ impl<'s, S: StateView> TModuleView for ExecutorViewBase<'s, S> {
     type Key = StateKey;
 
     fn get_module_state_value(&self, state_key: &Self::Key) -> anyhow::Result<Option<StateValue>> {
+        println!("tmodule view get state value");
         self.0.get_state_value(state_key)
     }
 }

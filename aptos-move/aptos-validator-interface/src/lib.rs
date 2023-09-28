@@ -5,7 +5,7 @@
 mod rest_interface;
 mod storage_interface;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 pub use crate::{rest_interface::RestDebuggerInterface, storage_interface::DBDebuggerInterface};
 use anyhow::{anyhow, Result};
 use aptos_framework::natives::code::{PackageMetadata, PackageRegistry};
@@ -224,7 +224,7 @@ impl TStateView for DebuggerStateView {
     type Key = StateKey;
 
     fn get_state_value(&self, state_key: &StateKey) -> Result<Option<StateValue>> {
-        // println!("state key:{:?}", state_key);
+        println!("debugger state key:{:?}", state_key);
         // if let Some(data) = &self.fake_data {
         //     if data.contains_key(state_key) {
         //         println!("get code module:{:?}", state_key);

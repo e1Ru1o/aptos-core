@@ -73,6 +73,7 @@ impl FakeDataStore {
     ///
     /// Returns the previous data if the key was occupied.
     pub fn set_legacy(&mut self, state_key: StateKey, bytes: Vec<u8>) -> Option<StateValue> {
+        println!("set legacy at key:{:?}", state_key);
         self.state_data
             .insert(state_key, StateValue::new_legacy(bytes.into()))
     }
@@ -81,6 +82,7 @@ impl FakeDataStore {
     ///
     /// Returns the previous data if the key was occupied.
     pub fn set(&mut self, state_key: StateKey, state_value: StateValue) -> Option<StateValue> {
+        println!("set at key:{:?}", state_key);
         self.state_data.insert(state_key, state_value)
     }
 
@@ -128,6 +130,7 @@ impl TStateView for FakeDataStore {
     type Key = StateKey;
 
     fn get_state_value(&self, state_key: &StateKey) -> Result<Option<StateValue>> {
+        println!("get stake value from key:{:?}, contains key?:{}", state_key, self.contains_key(state_key));
         Ok(self.state_data.get(state_key).cloned())
     }
 

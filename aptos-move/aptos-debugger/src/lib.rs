@@ -204,15 +204,14 @@ impl AptosDebugger {
 
                     // Obtain the state before execution
                     let state_view = DebuggerStateView::new(self.debugger.clone(), version);
-                    // let mut epoch_result = self
-                    //     .execute_transactions_by_epoch(version, vec![txn.clone()])
-                    //     .await.unwrap();
+                    let mut epoch_result = self
+                        .execute_transactions_by_epoch(version, vec![txn.clone()])
+                        .await.unwrap();
                     // assert_eq!(epoch_result.len(), 1);
 
                     // Create a fake executor
-                    let executor = FakeExecutor::from_head_genesis();
+                    let executor = FakeExecutor::no_genesis();
                     let mut executor = executor.set_not_parallel();
-                    *executor.data_store_mut() = FakeDataStore::new(HashMap::new());
 
                     // // Populate the pre-state in the executor
                     // let state_path = PathBuf::from(".").join(STATE_DATA).join(format!("{}_state", version));
@@ -225,7 +224,8 @@ impl AptosDebugger {
                     //     for (state_key, _) in state.into_iter() {
                     //         let state_value_res = state_view.get_state_value(&state_key);
                     //         if let Ok(Some(state_value)) = state_value_res {
-                    //             // executor.set(state_key.clone(), state_value);
+                    //             println!("set value by key:{:?}", state_key);
+                    //             executor.set(state_key.clone(), state_value);
                     //         }
                     //     }
                     //     let mut file = File::create(state_path).unwrap();
@@ -263,7 +263,7 @@ impl AptosDebugger {
                             let payload = signed_trans.payload();
                             if let TransactionPayload::EntryFunction(entry_function) =
                             payload {
-                                //let compiled_module = compiled_package.get_module_by_name(&package_name.clone(), &entry_function.module().name().to_string()).unwrap();
+                                let compiled_module = compiled_package.get_module_by_name(&package_name.clone(), &entry_function.module().name().to_string()).unwrap();
                                 let root_modules = compiled_package.all_modules();
                                 for compiled_module in root_modules {
                                     if let CompiledUnitEnum::Module(module) = &compiled_module.unit {
@@ -277,6 +277,7 @@ impl AptosDebugger {
                                 let state_view_storage = state_view.as_move_resolver();
                                 let features = Features::fetch_config(&state_view_storage).unwrap_or_default();
                                 let res = executor.try_exec_with_debugger(entry_function.module().name().as_str(), entry_function.function().as_str(), entry_function.ty_args().to_vec(), args, state_view_storage, features);
+                                //let res = executor.try_exec(entry_function.module().name().as_str(), entry_function.function().as_str(), entry_function.ty_args().to_vec(), args);
                                 println!("sender:{}, execution result at {} :{:?}", sender, version, res);
                             }
                         }

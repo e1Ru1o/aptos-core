@@ -957,7 +957,8 @@ impl FakeExecutor {
             MiscGasParameters::zeros(),
             LATEST_GAS_FEATURE_VERSION,
             self.chain_id,
-            features,
+            self.features.clone(),
+            //features,
             TimedFeatures::enable_all(),
             &resolver,
         )
@@ -994,6 +995,7 @@ impl FakeExecutor {
         type_params: Vec<TypeTag>,
         args: Vec<Vec<u8>>,
     ) -> Result<(WriteSet, Vec<ContractEvent>), VMStatus> {
+        println!("try exec called");
         let resolver = self.data_store.as_move_resolver();
 
         // TODO(Gas): we probably want to switch to non-zero costs in the future

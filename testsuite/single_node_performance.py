@@ -22,6 +22,10 @@ class Flow(Flag):
     # Tests that are run manually when using a smaller representative mode.
     # (i.e. for measuring speed of the machine)
     REPRESENTATIVE = auto()
+    # Tests used for previewnet evaluation
+    PREVIEWNET = auto()
+    # Tests used for previewnet evaluation
+    PREVIEWNET_LARGE_DB = auto()
 
 
 @dataclass
@@ -34,6 +38,8 @@ class RunGroupKey:
     transaction_weights_override: Optional[str] = field(default=None)
     sharding_traffic_flags: Optional[str] = field(default=None)
 
+    smaller_working_set: bool = field(default=False)
+
 
 @dataclass
 class RunGroupConfig:
@@ -42,6 +48,26 @@ class RunGroupConfig:
     included_in: Flow
     waived: bool = field(default=False)
 
+
+SELECTED_FLOW = Flow[os.environ.get("FLOW", default="LAND_BLOCKING")]
+
+DEFAULT_NUM_INIT_ACCOUNTS = (
+    "100000000" if SELECTED_FLOW == Flow.PREVIEWNET_LARGE_DB else "2000000"
+)
+DEFAULT_MAX_BLOCK_SIZE = (
+    "25000" if SELECTED_FLOW in [Flow.PREVIEWNET, Flow.PREVIEWNET_LARGE_DB] else "10000"
+)
+
+MAX_BLOCK_SIZE = int(os.environ.get("MAX_BLOCK_SIZE", default=DEFAULT_MAX_BLOCK_SIZE))
+NUM_BLOCKS = int(os.environ.get("NUM_BLOCKS_PER_TEST", default=15))
+NUM_BLOCKS_DETAILED = 10
+NUM_ACCOUNTS = max(
+    [
+        int(os.environ.get("NUM_INIT_ACCOUNTS", default=DEFAULT_NUM_INIT_ACCOUNTS)),
+        (2 + 2 * NUM_BLOCKS) * MAX_BLOCK_SIZE,
+    ]
+)
+MAIN_SIGNER_ACCOUNTS = 2 * MAX_BLOCK_SIZE
 
 # numbers are based on the machine spec used by github action
 # Calibrate from https://gist.github.com/igor-aptos/7b12ca28de03894cddda8e415f37889e
@@ -85,6 +111,15 @@ TESTS = [
 
     RunGroupConfig(expected_tps=50000, key=RunGroupKey("coin_transfer_connected_components", executor_type="sharded", sharding_traffic_flags="--connected-tx-grps 5000", transaction_type_override=""), included_in=Flow.REPRESENTATIVE),
     RunGroupConfig(expected_tps=50000, key=RunGroupKey("coin_transfer_hotspot", executor_type="sharded", sharding_traffic_flags="--hotspot-probability 0.8", transaction_type_override=""), included_in=Flow.REPRESENTATIVE),
+
+    # setting separately for previewnet, as we run on a different number of cores.
+    RunGroupConfig(expected_tps=29000 if NUM_ACCOUNTS < 5000000 else 13000, key=RunGroupKey("coin-transfer", smaller_working_set=True), included_in=Flow.PREVIEWNET | Flow.PREVIEWNET_LARGE_DB),
+    RunGroupConfig(expected_tps=22000 if NUM_ACCOUNTS < 5000000 else 11000, key=RunGroupKey("account-generation"), included_in=Flow.PREVIEWNET | Flow.PREVIEWNET_LARGE_DB),
+    RunGroupConfig(expected_tps=130 if NUM_ACCOUNTS < 5000000 else 60, key=RunGroupKey("publish-package"), included_in=Flow.PREVIEWNET | Flow.PREVIEWNET_LARGE_DB),
+    RunGroupConfig(expected_tps=1500 if NUM_ACCOUNTS < 5000000 else 1500, key=RunGroupKey("token-v2-ambassador-mint"), included_in=Flow.PREVIEWNET | Flow.PREVIEWNET_LARGE_DB),
+    RunGroupConfig(expected_tps=12000 if NUM_ACCOUNTS < 5000000 else 7000, key=RunGroupKey("token-v2-ambassador-mint", module_working_set_size=100), included_in=Flow.PREVIEWNET | Flow.PREVIEWNET_LARGE_DB),
+    RunGroupConfig(expected_tps=35000 if NUM_ACCOUNTS < 5000000 else 20000, key=RunGroupKey("coin_transfer_connected_components", executor_type="sharded", sharding_traffic_flags="--connected-tx-grps 5000", transaction_type_override=""), included_in=Flow.PREVIEWNET | Flow.PREVIEWNET_LARGE_DB, waived=True),
+    RunGroupConfig(expected_tps=50000 if NUM_ACCOUNTS < 5000000 else 30000, key=RunGroupKey("coin_transfer_hotspot", executor_type="sharded", sharding_traffic_flags="--hotspot-probability 0.8", transaction_type_override=""), included_in=Flow.PREVIEWNET | Flow.PREVIEWNET_LARGE_DB, waived=True),
 ]
 # fmt: on
 
@@ -99,16 +134,10 @@ NOISE_UPPER_LIMIT_WARN = 1.05
 # that are on top of this commit
 CODE_PERF_VERSION = "v4"
 
-NUMBER_OF_EXECUTION_THREADS = 8
-MAX_BLOCK_SIZE = int(os.environ.get("MAX_BLOCK_SIZE", default="10000"))
-NUM_BLOCKS = 15
-NUM_BLOCKS_DETAILED = 10
-NUM_ACCOUNTS = max([2000000, 4 * NUM_BLOCKS * MAX_BLOCK_SIZE])
-ADDITIONAL_DST_POOL_ACCOUNTS = 2 * NUM_BLOCKS * MAX_BLOCK_SIZE
-MAIN_SIGNER_ACCOUNTS = 2 * MAX_BLOCK_SIZE
-
 # default to using production number of execution threads for assertions
-NUMBER_OF_EXECUTION_THREADS = os.environ.get("NUMBER_OF_EXECUTION_THREADS", default=8)
+NUMBER_OF_EXECUTION_THREADS = int(
+    os.environ.get("NUMBER_OF_EXECUTION_THREADS", default=8)
+)
 
 if os.environ.get("DETAILED"):
     EXECUTION_ONLY_NUMBER_OF_THREADS = [1, 2, 4, 8, 16, 32, 60]
@@ -120,7 +149,6 @@ if os.environ.get("RELEASE_BUILD"):
 else:
     BUILD_FLAG = "--profile performance"
 
-SELECTED_FLOW = Flow[os.environ.get("FLOW", default="LAND_BLOCKING")]
 
 if os.environ.get("PROD_DB_FLAGS"):
     DB_CONFIG_FLAGS = ""
@@ -128,6 +156,13 @@ else:
     DB_CONFIG_FLAGS = (
         "--split-ledger-db --use-sharded-state-merkle-db --skip-index-and-usage"
     )
+
+if os.environ.get("ENABLE_PRUNER"):
+    DB_PRUNER_FLAGS = "--enable-state-pruner --enable-ledger-pruner --enable-epoch-snapshot-pruner --ledger-pruning-batch-size 10000 --state-prune-window 3000000 --epoch-snapshot-prune-window 3000000 --ledger-prune-window 3000000"
+else:
+    DB_PRUNER_FLAGS = ""
+
+HIDE_OUTPUT = os.environ.get("HIDE_OUTPUT")
 
 # Run the single node with performance optimizations enabled
 target_directory = "execution/executor-benchmark/src"
@@ -148,17 +183,22 @@ def execute_command(command):
         # stream to output while command is executing
         if p.stdout is not None:
             for line in p.stdout:
-                print(line, end="")
+                if not HIDE_OUTPUT:
+                    print(line, end="")
                 result.append(line)
-
-    if p.returncode != 0:
-        raise CalledProcessError(p.returncode, p.args)
 
     # return the full output in the end for postprocessing
     full_result = "\n".join(result)
 
+    if p.returncode != 0:
+        if HIDE_OUTPUT:
+            print(full_result)
+        raise CalledProcessError(p.returncode, p.args)
+
     if " ERROR " in full_result:
         print("ERROR log line in execution")
+        if HIDE_OUTPUT:
+            print(full_result)
         exit(1)
 
     return full_result
@@ -282,7 +322,7 @@ errors = []
 warnings = []
 
 with tempfile.TemporaryDirectory() as tmpdirname:
-    create_db_command = f"cargo run {BUILD_FLAG} -- --block-size {MAX_BLOCK_SIZE} --execution-threads {NUMBER_OF_EXECUTION_THREADS} {DB_CONFIG_FLAGS} create-db --data-dir {tmpdirname}/db --num-accounts {NUM_ACCOUNTS}"
+    create_db_command = f"cargo run {BUILD_FLAG} -- --block-size {MAX_BLOCK_SIZE} --execution-threads {NUMBER_OF_EXECUTION_THREADS} {DB_CONFIG_FLAGS} {DB_PRUNER_FLAGS} create-db --data-dir {tmpdirname}/db --num-accounts {NUM_ACCOUNTS}"
     output = execute_command(create_db_command)
 
     results = []
@@ -313,10 +353,16 @@ with tempfile.TemporaryDirectory() as tmpdirname:
         elif test.key.executor_type == "native":
             executor_type_str = "--use-native-executor --transactions-per-sender 1"
         elif test.key.executor_type == "sharded":
-            executor_type_str = f"--async-partitioning --num-executor-shards {NUMBER_OF_EXECUTION_THREADS} {sharding_traffic_flags}"
+            executor_type_str = f"--num-executor-shards {NUMBER_OF_EXECUTION_THREADS} {sharding_traffic_flags}"
         else:
             raise Exception(f"executor type not supported {test.key.executor_type}")
-        common_command_suffix = f"{executor_type_str} --generate-then-execute --block-size {cur_block_size} {DB_CONFIG_FLAGS} run-executor {workload_args_str} --module-working-set-size {test.key.module_working_set_size} --main-signer-accounts {MAIN_SIGNER_ACCOUNTS} --additional-dst-pool-accounts {ADDITIONAL_DST_POOL_ACCOUNTS} --data-dir {tmpdirname}/db  --checkpoint-dir {tmpdirname}/cp"
+        txn_emitter_prefix_str = "" if NUM_BLOCKS > 200 else " --generate-then-execute"
+
+        ADDITIONAL_DST_POOL_ACCOUNTS = (
+            2 * MAX_BLOCK_SIZE * (1 if test.key.smaller_working_set else NUM_BLOCKS)
+        )
+
+        common_command_suffix = f"{executor_type_str} {txn_emitter_prefix_str} --block-size {cur_block_size} {DB_CONFIG_FLAGS} {DB_PRUNER_FLAGS} run-executor {workload_args_str} --module-working-set-size {test.key.module_working_set_size} --main-signer-accounts {MAIN_SIGNER_ACCOUNTS} --additional-dst-pool-accounts {ADDITIONAL_DST_POOL_ACCOUNTS} --data-dir {tmpdirname}/db  --checkpoint-dir {tmpdirname}/cp"
 
         number_of_threads_results = {}
 
@@ -363,23 +409,24 @@ with tempfile.TemporaryDirectory() as tmpdirname:
             )
         )
 
-        print_table(
-            results, by_levels=True, single_field=("t/s", lambda r: int(round(r.tps)))
-        )
-        print_table(
-            results, by_levels=True, single_field=("g/s", lambda r: int(round(r.gps)))
-        )
-        print_table(
-            results,
-            by_levels=True,
-            single_field=("exe/total", lambda r: round(r.fraction_in_execution, 3)),
-        )
-        print_table(
-            results,
-            by_levels=True,
-            single_field=("vm/exe", lambda r: round(r.fraction_of_execution_in_vm, 3)),
-        )
-        print_table(results, by_levels=False, single_field=None)
+        if not HIDE_OUTPUT:
+            print_table(
+                results, by_levels=True, single_field=("t/s", lambda r: int(round(r.tps)))
+            )
+            print_table(
+                results, by_levels=True, single_field=("g/s", lambda r: int(round(r.gps)))
+            )
+            print_table(
+                results,
+                by_levels=True,
+                single_field=("exe/total", lambda r: round(r.fraction_in_execution, 3)),
+            )
+            print_table(
+                results,
+                by_levels=True,
+                single_field=("vm/exe", lambda r: round(r.fraction_of_execution_in_vm, 3)),
+            )
+            print_table(results, by_levels=False, single_field=None)
 
         if single_node_result.tps < test.expected_tps * NOISE_LOWER_LIMIT:
             text = f"regression detected {single_node_result.tps} < {test.expected_tps * NOISE_LOWER_LIMIT} = {test.expected_tps} * {NOISE_LOWER_LIMIT}, {test.key} didn't meet TPS requirements"
@@ -400,13 +447,17 @@ with tempfile.TemporaryDirectory() as tmpdirname:
             text = f"potential (but within normal noise) perf improvement detected {single_node_result.tps} > {test.expected_tps * NOISE_UPPER_LIMIT_WARN} = {test.expected_tps} * {NOISE_UPPER_LIMIT_WARN}, {test.key} exceeded TPS requirements, increase TPS requirements to match new baseline"
             warnings.append(text)
 
-if warnings:
-    print("Warnings: ")
-    print("\n".join(warnings))
+if HIDE_OUTPUT:
+    print_table(results, by_levels=False, single_field=None)
 
-if errors:
-    print("Errors: ")
-    print("\n".join(errors))
-    exit(1)
+if SELECTED_FLOW not in [Flow.PREVIEWNET, Flow.PREVIEWNET_LARGE_DB]:
+    if warnings:
+        print("Warnings: ")
+        print("\n".join(warnings))
+
+    if errors:
+        print("Errors: ")
+        print("\n".join(errors))
+        exit(1)
 
 exit(0)

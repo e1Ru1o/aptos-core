@@ -38,9 +38,10 @@ use move_bytecode_source_map::source_map::SourceMap;
 pub const METADATA_FILE_NAME: &str = "package-metadata.bcs";
 pub const UPGRADE_POLICY_CUSTOM_FIELD: &str = "upgrade_policy";
 
-const APTOS_PACKAGES: [&str; 5] = ["AptosFramework", "MoveStdlib", "AptosStdlib", "AptosToken", "AptosTokenObjects"];
+pub const APTOS_PACKAGES: [&str; 5] = ["AptosFramework", "MoveStdlib", "AptosStdlib", "AptosToken", "AptosTokenObjects"];
 pub const APTOS_COMMONS: &str = "aptos-commons";
 pub const STATE_DATA: &str = "state_data";
+pub const TXN_DATA: &str = "txn_data";
 
 /// Represents a set of options for building artifacts from Move.
 #[derive(Debug, Clone, Parser, Serialize, Deserialize)]
@@ -326,47 +327,43 @@ impl BuiltPackage {
         APTOS_PACKAGES.contains(&package_name)
     }
 
-    pub fn compile_aptos_packages(aptos_commons_path: &PathBuf, compiled_package_map: &mut BTreeMap<(AccountAddress, String, Option<u64>), CompiledPackage>) {
+    pub fn compile_aptos_packages(aptos_commons_path: &PathBuf,
+                                  compiled_package_map: &mut BTreeMap<(AccountAddress, String, Option<u64>, u32), CompiledPackage>) -> anyhow::Result<()> {
         for package in APTOS_PACKAGES {
             let mut build_options = BuildOptions::default();
             let root_package_dir = aptos_commons_path
                 .join(format!("{}", package));
             let compiled_package = BuiltPackage::build(root_package_dir, build_options);
             if let Ok(built_package) = compiled_package {
-                compiled_package_map.insert((AccountAddress::ONE, package.to_string(), None), built_package.package);
+                compiled_package_map.insert((AccountAddress::ONE, package.to_string(), None, 6), built_package.package);
+            } else {
+                return Err(anyhow::Error::msg(format!("package {} cannot be compiled", package)));;
             }
         }
+        Ok(())
     }
 
     // step 2: analyzing the manifest file, handle each dependency using depth-first traversal
     // case 1: dependency on aptos related libraries:
     //
-    pub fn unzip_and_dump_source_from_package_metadata
-    (root_package_name: String, root_account_address: AccountAddress, upgrade_num: u64,
+    pub fn dump_and_compile_from_package_metadata
+    (
+     root_dir: PathBuf,
+     root_package_name: String,
+     root_account_address: AccountAddress,
+     upgrade_num: u64,
      dep_map: &HashMap<(AccountAddress, String), PackageMetadata>,
-     compiled_package_map: &mut BTreeMap<(AccountAddress, String, Option<u64>), CompiledPackage>) ->
+     compiled_package_map: &mut BTreeMap<(AccountAddress, String, Option<u64>, u32), CompiledPackage>,
+     compiler_verion: Option<CompilerVersion>,
+     bytecode_version: u32) ->
     anyhow::Result<()> {
 
-        // let fix_manifest_addr = |addr_map_opt: &mut Option<AddressDeclarations>, addr: AccountAddress, name: &str| {
-        //     let named_address = NamedAddress::from(name.to_string());
-        //     if *addr_map_opt == None {
-        //         let mut map = BTreeMap::new();
-        //         map.insert(named_address, Some(addr));
-        //         *addr_map_opt = Some(map);
-        //     } else {
-        //         let map = addr_map_opt.as_mut().unwrap();
-        //         if !(*map).contains_key(&named_address) {
-        //             (*map).insert(named_address, Some(addr));
-        //         }
-        //     }
-        // };
-
-        let root_package_dir = PathBuf::from(".")
+        let root_package_dir = root_dir
             .join(format!("{}.{}.{}", root_package_name, root_account_address, upgrade_num));
         if root_package_dir.exists() {
             return Ok(());
         }
-        std::fs::create_dir_all(root_package_dir.as_path());
+        std::fs::create_dir_all(root_package_dir.as_path())?;
         let root_package_metadata = dep_map.get(&(root_account_address, root_package_name.clone())).unwrap();
         // step 1: unzip and save the source code into src into corresponding folder: txn_version/package-name
         let sources_dir = root_package_dir.join("sources");
@@ -380,14 +377,6 @@ impl BuiltPackage {
             };
             let source_str = unzip_metadata_str(&module.source).unwrap();
             std::fs::write(&module_path.clone(), source_str).unwrap();
-            // // Handling source map if there is one
-            // if !module.source_map.is_empty() {
-            //     let source_map_unzipped = unzip_metadata(&module.source_map).unwrap();
-            //     let source_map = bcs::from_bytes::<SourceMap>(&source_map_unzipped).unwrap();
-            //     if let Some((addr, ident_str)) = source_map.module_name_opt {
-            //         fix_manifest_addr(&mut manifest.addresses, addr, &ident_str.into_string());
-            //     }
-            // }
         }
 
         // step 2: unzip, parse the manifest file
@@ -422,8 +411,9 @@ impl BuiltPackage {
                         let pack_dep_upgrade_num = dep_metadata.clone().upgrade_number;
                         let path_str = format!("{}.{}.{}", pack_dep_name, pack_dep_address, pack_dep_upgrade_num);
                         fix_manifest_dep(dep, &path_str);
-                        Self::unzip_and_dump_source_from_package_metadata(pack_dep_name.clone(), pack_dep_address,
-                        dep_metadata.clone().upgrade_number, dep_map, compiled_package_map)?;
+                        Self::dump_and_compile_from_package_metadata(root_dir.clone(), pack_dep_name.clone(), pack_dep_address,
+                                                                     dep_metadata.clone().upgrade_number, dep_map, compiled_package_map,
+                                                                     compiler_verion, bytecode_version)?;
                     }
                     break;
                 }
@@ -436,15 +426,14 @@ impl BuiltPackage {
         //let _ = File::create(toml_path)
         //        .expect("Error encountered while creating file!");
         std::fs::write(&toml_path, manifest.to_string()).unwrap();
-
-        if !compiled_package_map.contains_key(&(root_account_address, root_package_name.clone(), Some(upgrade_num))) {
+        if !compiled_package_map.contains_key(&(root_account_address, root_package_name.clone(), Some(upgrade_num), bytecode_version)) {
             let mut build_options = BuildOptions::default();
             build_options.named_addresses.insert(root_package_name.clone(), root_account_address.clone());
             let root_package_dir = PathBuf::from(".")
                 .join(format!("{}.{}.{}", root_package_name, root_account_address, upgrade_num));
             let compiled_package = BuiltPackage::build(root_package_dir, build_options);
             if let Ok(built_package) = compiled_package {
-                compiled_package_map.insert((root_account_address, root_package_name, Some(upgrade_num)), built_package.package);
+                compiled_package_map.insert((root_account_address, root_package_name, Some(upgrade_num), bytecode_version), built_package.package);
             }
         }
 

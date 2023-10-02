@@ -283,7 +283,7 @@ impl<'e, E: ExecutorView> ModuleResolver for StorageAdapter<'e, E> {
 
     fn get_module(&self, module_id: &ModuleId) -> Result<Option<Bytes>, Error> {
         let access_path = AccessPath::from(module_id);
-        println!("get module:{}", module_id);
+        // println!("get module:{}", module_id);
         Ok(self
             .executor_view
             .get_module_bytes(&StateKey::access_path(access_path))

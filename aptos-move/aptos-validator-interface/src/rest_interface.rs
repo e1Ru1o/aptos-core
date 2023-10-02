@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 use async_recursion::async_recursion;
 
-pub struct RestDebuggerInterface(Client);
+pub struct RestDebuggerInterface(pub Client);
 
 impl RestDebuggerInterface {
     pub fn new(client: Client) -> Self {

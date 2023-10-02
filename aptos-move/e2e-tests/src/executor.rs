@@ -52,6 +52,7 @@ use aptos_vm::{
     data_cache::AsMoveResolver,
     move_vm_ext::{MoveVmExt, SessionId},
     AptosVM, VMExecutor, VMValidator,
+    verifier,
 };
 use aptos_vm_genesis::{generate_genesis_change_set_for_testing_with_count, GenesisOptions};
 use aptos_vm_logging::log_schema::AdapterLogSchema;
@@ -73,7 +74,8 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
-use aptos_types::on_chain_config::ConfigStorage;
+use aptos_types::on_chain_config::{ConfigStorage, FeatureFlag};
+use aptos_types::transaction::EntryFunction;
 use aptos_vm::data_cache::StorageAdapter;
 use aptos_vm::move_vm_ext::AptosMoveResolver;
 use aptos_vm::storage_adapter::ExecutorViewBase;
@@ -988,6 +990,84 @@ impl FakeExecutor {
         Ok((write_set, events))
     }
 
+    pub fn try_exec_entry_with_features(
+        &mut self,
+        senders: Vec<AccountAddress>,
+        script_fn: &EntryFunction,
+        features: Features
+        // module_name: &str,
+        // function_name: &str,
+        // type_params: Vec<TypeTag>,
+        // args: Vec<Vec<u8>>,
+    ) -> Result<(WriteSet, Vec<ContractEvent>), VMStatus> {
+        // let signer = MoveValue::Signer(sender).simple_serialize();
+        // println!("try exec called");
+        let resolver = self.data_store.as_move_resolver();
+
+        //println!("v6 enabled:{}", features.is_enabled(FeatureFlag::VM_BINARY_FORMAT_V6));
+        //println!("self feautres enabled:{}", self.features.is_enabled(FeatureFlag::VM_BINARY_FORMAT_V6));
+
+        // TODO(Gas): we probably want to switch to non-zero costs in the future
+        let vm = MoveVmExt::new(
+            NativeGasParameters::zeros(),
+            MiscGasParameters::zeros(),
+            LATEST_GAS_FEATURE_VERSION,
+            self.chain_id,
+            self.features.clone(),
+            //features,
+            // FIXME: should probably read the timestamp from storage.
+            TimedFeatures::enable_all(),
+            &resolver,
+        )
+            .unwrap();
+        let mut session = vm.new_session(&resolver, SessionId::void());
+        // session.execute_entry_function()
+
+        let function = session.load_function(
+            script_fn.module(),
+            script_fn.function(),
+            script_fn.ty_args(),
+        )?;
+        let struct_constructors = self.features
+            .is_enabled(FeatureFlag::STRUCT_CONSTRUCTORS);
+        let args = verifier::transaction_arg_validation::validate_combine_signer_and_txn_args(
+            &mut session,
+            senders,
+            script_fn.args().to_vec(),
+            &function,
+            struct_constructors,
+        )?;
+        session.execute_entry_function(
+            script_fn.module(),
+            script_fn.function(),
+            script_fn.ty_args().to_vec(),
+            args,
+            &mut UnmeteredGasMeter,
+        ).map_err(|e| e.into_vm_status())?;
+        // session
+        //     .execute_entry_function(
+        //         &Self::module(module_name),
+        //         &Self::name(function_name),
+        //         type_params,
+        //         args,
+        //         &mut UnmeteredGasMeter,
+        //     )
+        //     .map_err(|e| e.into_vm_status())?;
+
+        let change_set = session
+            .finish(
+                &mut (),
+                &ChangeSetConfigs::unlimited_at_gas_feature_version(LATEST_GAS_FEATURE_VERSION),
+            )
+            .expect("Failed to generate txn effects");
+        // TODO: Support deltas in fake executor.
+        let (write_set, events) = change_set
+            .try_into_storage_change_set()
+            .expect("Failed to convert to ChangeSet")
+            .into_inner();
+        Ok((write_set, events))
+    }
+
     pub fn try_exec(
         &mut self,
         module_name: &str,
@@ -995,7 +1075,7 @@ impl FakeExecutor {
         type_params: Vec<TypeTag>,
         args: Vec<Vec<u8>>,
     ) -> Result<(WriteSet, Vec<ContractEvent>), VMStatus> {
-        println!("try exec called");
+        // println!("try exec called");
         let resolver = self.data_store.as_move_resolver();
 
         // TODO(Gas): we probably want to switch to non-zero costs in the future

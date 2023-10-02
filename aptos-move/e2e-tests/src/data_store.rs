@@ -55,6 +55,13 @@ impl FakeDataStore {
         }
     }
 
+    /// Creates a new `FakeDataStore` with the provided initial data.
+    pub fn new_with_state_value(data: HashMap<StateKey, StateValue>) -> Self {
+        FakeDataStore {
+            state_data: data
+        }
+    }
+
     pub fn size(&self) -> usize {
         self.state_data.len()
     }
@@ -82,7 +89,7 @@ impl FakeDataStore {
     ///
     /// Returns the previous data if the key was occupied.
     pub fn set(&mut self, state_key: StateKey, state_value: StateValue) -> Option<StateValue> {
-        println!("set at key:{:?}", state_key);
+        // println!("set at key:{:?}", state_key);
         self.state_data.insert(state_key, state_value)
     }
 
@@ -117,7 +124,7 @@ impl FakeDataStore {
     /// Does not do any sort of verification on the module.
     pub fn add_module(&mut self, module_id: &ModuleId, blob: Vec<u8>) {
         let access_path = AccessPath::from(module_id);
-        println!("add module path:{}", access_path);
+        // println!("add module path:{}", access_path);
         self.set(
             StateKey::access_path(access_path),
             StateValue::new_legacy(blob.into()),
@@ -130,7 +137,7 @@ impl TStateView for FakeDataStore {
     type Key = StateKey;
 
     fn get_state_value(&self, state_key: &StateKey) -> Result<Option<StateValue>> {
-        println!("get stake value from key:{:?}, contains key?:{}", state_key, self.contains_key(state_key));
+        // println!("get stake value from key:{:?}, contains key?:{}", state_key, self.contains_key(state_key));
         Ok(self.state_data.get(state_key).cloned())
     }
 

@@ -393,7 +393,6 @@ impl<'a, T: Transaction, S: TStateView<Key = T::Key>, X: Executable> TModuleView
             "Reading a resource {:?} using ModuleView",
             state_key,
         );
-
         match &self.latest_view {
             ViewState::Sync(state) => {
                 use MVModulesError::*;

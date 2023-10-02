@@ -21,6 +21,8 @@ use std::{
     ops::Deref,
 };
 use thiserror::Error;
+use move_core_types::account_address::AccountAddress;
+use move_core_types::language_storage::CODE_TAG;
 
 #[derive(Clone, Debug, Derivative)]
 #[derivative(PartialEq, PartialOrd, Hash, Ord)]
@@ -174,6 +176,17 @@ impl StateKeyInner {
         out.extend(raw_key);
         Ok(out)
     }
+
+    pub fn is_aptos_code_path(&self) -> bool {
+        match self {
+            StateKeyInner::AccessPath(access_path) => {
+                access_path.path.len() > 0 && access_path.path[0] == CODE_TAG
+                    && (access_path.address == AccountAddress::ONE || access_path.address == AccountAddress::THREE)
+            },
+            _ => false,
+        }
+    }
+
 }
 
 impl CryptoHash for StateKey {

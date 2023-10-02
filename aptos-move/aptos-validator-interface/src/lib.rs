@@ -5,7 +5,10 @@
 mod rest_interface;
 mod storage_interface;
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::hash::Hash;
+use std::ops::DerefMut;
 pub use crate::{rest_interface::RestDebuggerInterface, storage_interface::DBDebuggerInterface};
 use anyhow::{anyhow, Result};
 use aptos_framework::natives::code::{PackageMetadata, PackageRegistry};
@@ -128,6 +131,7 @@ pub struct DebuggerStateView {
     query_sender:
         Mutex<UnboundedSender<(StateKey, Version, std::sync::mpsc::Sender<Option<Vec<u8>>>)>>,
     version: Version,
+    pub data_read_stake_keys: Option<Arc<Mutex<HashMap<StateKey, StateValue>>>>
 }
 
 async fn handler_thread<'a>(
@@ -152,7 +156,7 @@ async fn handler_thread<'a>(
             };
         if let Some(data) = &fake_data {
             if data.contains_key(&key) {
-                println!("get code module:{:?}", key);
+                // println!("get code module:{:?}", key);
                 let val_opt = data.get_state_value(&key).unwrap();
                 if let Some(val) = val_opt {
                     sender.send(Some(val.bytes().to_vec())).unwrap();
@@ -188,6 +192,7 @@ impl DebuggerStateView {
         Self {
             query_sender: Mutex::new(query_sender),
             version,
+            data_read_stake_keys: None,
         }
     }
 
@@ -198,12 +203,21 @@ impl DebuggerStateView {
         Self {
             query_sender: Mutex::new(query_sender),
             version,
+            data_read_stake_keys: None,
         }
     }
 
-    // pub fn fake_data_mut(&mut self) -> &mut Option<FakeDataStore> {
-    //     &mut self.fake_data
-    // }
+    pub fn new_with_data_reads(db: Arc<dyn AptosValidatorInterface + Send>, version: Version) -> Self {
+        let (fake_query_sender, thread_receiver) = unbounded_channel();
+
+        tokio::spawn(async move { handler_thread(db, thread_receiver, None).await });
+        Self {
+            query_sender: Mutex::new(fake_query_sender),
+            version,
+            data_read_stake_keys: Some(Arc::new(Mutex::new(HashMap::new()))),
+        }
+    }
+
 
     fn get_state_value_internal(
         &self,
@@ -216,7 +230,19 @@ impl DebuggerStateView {
             .send((state_key.clone(), version, tx))
             .unwrap();
         let bytes_opt = rx.recv()?;
-        Ok(bytes_opt.map(|bytes| StateValue::new_legacy(bytes.into())))
+        let ret = bytes_opt.map(|bytes| StateValue::new_legacy(bytes.into()));
+        if state_key.is_aptos_code_path() {
+            return Ok(ret);
+        }
+        if let Some(reads) = &self.data_read_stake_keys {
+            if !reads.lock().unwrap().contains_key(state_key) {
+                if ret.is_some() {
+                    reads.lock().unwrap().deref_mut().insert(state_key.clone(), ret.clone().unwrap());
+                }
+            }
+        }
+
+        Ok(ret)
     }
 }
 
@@ -224,13 +250,6 @@ impl TStateView for DebuggerStateView {
     type Key = StateKey;
 
     fn get_state_value(&self, state_key: &StateKey) -> Result<Option<StateValue>> {
-        println!("debugger state key:{:?}", state_key);
-        // if let Some(data) = &self.fake_data {
-        //     if data.contains_key(state_key) {
-        //         println!("get code module:{:?}", state_key);
-        //         return data.get_state_value(state_key);
-        //     }
-        // }
         self.get_state_value_internal(state_key, self.version)
     }
 

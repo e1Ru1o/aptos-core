@@ -8,7 +8,10 @@ use aptos_language_e2e_tests::{
 use aptos_types::{
     block_executor::partitioner::PartitionedTransactions,
     state_store::state_key::StateKeyInner,
-    transaction::{analyzed_transaction::AnalyzedTransaction, Transaction, TransactionOutput},
+    transaction::{
+        analyzed_transaction::AnalyzedTransaction, SignatureVerifiedTransaction, Transaction,
+        TransactionOutput,
+    },
 };
 use aptos_vm::{
     sharded_block_executor::{executor_client::ExecutorClient, ShardedBlockExecutor},
@@ -116,14 +119,11 @@ pub fn test_sharded_block_executor_no_conflict<E: ExecutorClient<FakeDataStore>>
             None,
         )
         .unwrap();
-    let unsharded_txn_output = AptosVM::execute_block(
+    let txns: Vec<SignatureVerifiedTransaction> =
         PartitionedTransactions::flatten(partitioned_txns)
             .into_iter()
             .map(|t| t.into_txn())
-            .collect(),
-        executor.data_store(),
-        None,
-    )
-    .unwrap();
+            .collect();
+    let unsharded_txn_output = AptosVM::execute_block(&txns, executor.data_store(), None).unwrap();
     compare_txn_outputs(unsharded_txn_output, sharded_txn_output);
 }

@@ -29,7 +29,6 @@ spec aptos_framework::managed_coin {
 
         let addr =  type_info::type_of<CoinType>().account_address;
         let maybe_supply = global<coin::CoinInfo<CoinType>>(addr).supply;
-
         // Ensure the amount won't be overflow.
         aborts_if amount <= 0;
         aborts_if !exists<coin::CoinInfo<CoinType>>(addr);
@@ -68,10 +67,20 @@ spec aptos_framework::managed_coin {
         amount: u64,
     ) {
         let account_addr = signer::address_of(account);
+
+        // Capabilities<CoinType> should not exist in the signer address.
         aborts_if !exists<Capabilities<CoinType>>(account_addr);
+
         let coin_store = global<coin::CoinStore<CoinType>>(dst_addr);
+        // Capabilities<CoinType> should not exist in the destination address and `dst_addr` should not be frozen.
         aborts_if !exists<coin::CoinStore<CoinType>>(dst_addr);
         aborts_if coin_store.frozen;
+
+        // Ensure that 'amount' is withdrawn from 'account'.
+        ensures global<coin::CoinStore<CoinType>>(account_addr).coin.value == old(global<coin::CoinStore<CoinType>>(account_addr)).coin.value - amount;
+
+        // Ensure that 'amount' in deposited at 'dst_addr'.
+        ensures coin_store.coin.value == old(global<coin::CoinStore<CoinType>>(dst_addr)).coin.value + amount;
     }
 
     /// An account can only be registered once.
@@ -87,5 +96,7 @@ spec aptos_framework::managed_coin {
         aborts_if !exists<coin::CoinStore<CoinType>>(account_addr) && acc.guid_creation_num + 2 > MAX_U64;
         aborts_if !exists<coin::CoinStore<CoinType>>(account_addr) && !exists<account::Account>(account_addr);
         aborts_if !exists<coin::CoinStore<CoinType>>(account_addr) && !type_info::spec_is_struct<CoinType>();
+
+        ensures exists<coin::CoinStore<CoinType>>(account_addr);
     }
 }

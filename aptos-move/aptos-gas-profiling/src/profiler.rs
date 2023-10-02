@@ -10,9 +10,9 @@ use aptos_gas_meter::AptosGasMeter;
 use aptos_types::{
     contract_event::ContractEvent, state_store::state_key::StateKey, write_set::WriteOp,
 };
-use aptos_vm_types::change_set::VMChangeSet;
+use aptos_vm_types::change_set::{GroupWrite, VMChangeSet};
 use move_binary_format::{
-    errors::{Location, PartialVMResult, VMResult},
+    errors::{Location, PartialVMError, PartialVMResult, VMResult},
     file_format::CodeOffset,
     file_format_common::Opcodes,
 };
@@ -20,6 +20,7 @@ use move_core_types::{
     account_address::AccountAddress,
     identifier::Identifier,
     language_storage::{ModuleId, TypeTag},
+    vm_status::StatusCode,
 };
 use move_vm_types::{
     gas::{GasMeter, SimpleInstruction},
@@ -484,7 +485,7 @@ where
 
         fn storage_fee_refund_for_state_slot(&self, op: &WriteOp) -> Fee;
 
-        fn storage_fee_for_state_bytes(&self, key: &StateKey, op: &WriteOp) -> Fee;
+        fn storage_fee_for_state_bytes(&self, key: &StateKey, op: &WriteOp, maybe_group_size: Option<u64>) -> Fee;
 
         fn storage_fee_per_event(&self, event: &ContractEvent) -> Fee;
 
@@ -516,6 +517,24 @@ where
         res
     }
 
+    fn charge_io_gas_for_group_write(
+        &mut self,
+        key: &StateKey,
+        group_write: &GroupWrite,
+    ) -> VMResult<()> {
+        let (cost, res) =
+            self.delegate_charge(|base| base.charge_io_gas_for_group_write(key, group_write));
+
+        self.total_exec_io += cost;
+        self.write_set_transient.push(WriteTransient {
+            key: key.clone(),
+            cost,
+            op_type: write_op_type(&group_write.metadata_op),
+        });
+
+        res
+    }
+
     fn process_storage_fee_for_all(
         &mut self,
         change_set: &mut VMChangeSet,
@@ -541,7 +560,7 @@ where
         for (key, op) in change_set.write_set_iter_mut() {
             let slot_fee = self.storage_fee_for_state_slot(op);
             let slot_refund = self.storage_fee_refund_for_state_slot(op);
-            let bytes_fee = self.storage_fee_for_state_bytes(key, op);
+            let bytes_fee = self.storage_fee_for_state_bytes(key, op, None);
 
             Self::maybe_record_storage_deposit(op, slot_fee);
             total_refund += slot_refund;
@@ -553,6 +572,35 @@ where
                 cost: fee,
             });
             // TODO(gas): track storage refund in the profiler
+            write_fee += fee;
+        }
+
+        for (key, group_metadata_op) in change_set.group_write_set_iter_mut() {
+            let slot_fee = self.storage_fee_for_state_slot(group_metadata_op);
+            let refund = self.storage_fee_refund_for_state_slot(group_metadata_op);
+
+            Self::maybe_record_storage_deposit(group_metadata_op, slot_fee);
+            total_refund += refund;
+
+            let group_size = group_metadata_op
+                .bytes()
+                .map_or(Ok(0), |b| bcs::from_bytes::<u64>(b))
+                .map_err(|_| {
+                    PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
+                        .with_message("Error deserializing group size ".to_string())
+                        .finish(Location::Undefined)
+                })?;
+            let bytes_fee =
+                self.storage_fee_for_state_bytes(key, group_metadata_op, Some(group_size));
+
+            let fee = slot_fee + bytes_fee;
+            // TODO: should we distringuish group writes.
+            write_set_storage.push(WriteStorage {
+                key: key.clone(),
+                op_type: write_op_type(group_metadata_op),
+                cost: fee,
+            });
+
             write_fee += fee;
         }
 

@@ -211,6 +211,12 @@ impl VMChangeSet {
             .chain(self.aggregator_write_set.iter_mut())
     }
 
+    pub fn group_write_set_iter_mut(&mut self) -> impl Iterator<Item = (&StateKey, &mut WriteOp)> {
+        self.resource_group_write_set
+            .iter_mut()
+            .map(|(key, group_write)| (key, &mut group_write.metadata_op))
+    }
+
     pub fn resource_write_set(&self) -> &HashMap<StateKey, WriteOp> {
         &self.resource_write_set
     }

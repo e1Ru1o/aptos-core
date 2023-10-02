@@ -11,11 +11,13 @@ use aptos_types::{
     },
     write_set::WriteOp,
 };
+use aptos_vm_types::change_set::GroupWrite;
 use bytes::Bytes;
 use move_core_types::{
-    effects::Op as MoveStorageOp,
+    effects::{AccountChangeSet, Op as MoveStorageOp},
     vm_status::{err_msg, StatusCode, VMStatus},
 };
+use std::collections::HashMap;
 
 pub(crate) struct WriteOpConverter<'r> {
     remote: &'r dyn AptosMoveResolver,
@@ -63,6 +65,103 @@ impl<'r> WriteOpConverter<'r> {
             remote,
             new_slot_metadata,
         }
+    }
+
+    pub(crate) fn convert_resource_group_v1(
+        &self,
+        state_key: &StateKey,
+        group_changes: AccountChangeSet,
+        legacy_creation_as_modification: bool,
+    ) -> Result<GroupWrite, VMStatus> {
+        // Resource group metadata is stored at the group StateKey, and can be obtained via the
+        // same interfaces at for a resource at a given StateKey.
+        let state_value_metadata_result = self.remote.get_resource_state_value_metadata(state_key);
+        // Currently, due to read-before-write and a gas charge on the first read that is based
+        // on the group size, this should simply re-read a cached (speculative) group size.
+        let pre_group_size = self.remote.resource_group_size(state_key).map_err(|_| {
+            VMStatus::error(
+                StatusCode::STORAGE_ERROR,
+                err_msg("Error querying resource group size"),
+            )
+        })?;
+
+        let mut inner_ops = HashMap::new();
+
+        let group_size_arithmetics_error = || {
+            VMStatus::error(
+                StatusCode::STORAGE_ERROR,
+                err_msg("Group size underflow while applying updates"),
+            )
+        };
+        let post_group_size = group_changes.into_resources().into_iter().try_fold(
+            pre_group_size,
+            |cur_size, (tag, current_op)| {
+                let cur_size = if !matches!(current_op, MoveStorageOp::New(_)) {
+                    let old_size = self
+                        .remote
+                        .resource_size_in_group(state_key, &tag)
+                        .map_err(|_| {
+                            VMStatus::error(
+                                StatusCode::STORAGE_ERROR,
+                                err_msg("Error querying resource group size"),
+                            )
+                        })?;
+                    cur_size
+                        .checked_sub(old_size)
+                        .ok_or_else(group_size_arithmetics_error)?
+                } else {
+                    cur_size
+                };
+
+                let (new_size, legacy_op) = match current_op {
+                    MoveStorageOp::Delete => (cur_size, WriteOp::Deletion),
+                    MoveStorageOp::Modify(new_data) => (
+                        cur_size
+                            .checked_add(new_data.len() as u64)
+                            .ok_or_else(group_size_arithmetics_error)?,
+                        WriteOp::Modification(new_data),
+                    ),
+                    MoveStorageOp::New(data) => (
+                        cur_size
+                            .checked_add(data.len() as u64)
+                            .ok_or_else(group_size_arithmetics_error)?,
+                        WriteOp::Creation(data),
+                    ),
+                };
+                inner_ops.insert(tag, legacy_op);
+                Ok::<u64, VMStatus>(new_size)
+            },
+        )?;
+
+        // Create the op that would look like a combined V0 resource group MoveStorageOp,
+        // except it encodes the (speculative) size of the group after applying the updates
+        // which is used for charging storage fees. Moreover, the metadata computation occurs
+        // fully backwards compatibly, and lets obtain final storage op by replacing bytes.
+        let metadata_op = if post_group_size == 0 {
+            MoveStorageOp::Delete
+        } else {
+            let encoded_group_size = bcs::to_bytes(&post_group_size)
+                .map_err(|_| {
+                    VMStatus::error(
+                        StatusCode::STORAGE_ERROR,
+                        err_msg("Group size underflow while applying updates"),
+                    )
+                })?
+                .into();
+            if pre_group_size == 0 {
+                MoveStorageOp::New(encoded_group_size)
+            } else {
+                MoveStorageOp::Modify(encoded_group_size)
+            }
+        };
+        Ok(GroupWrite {
+            metadata_op: self.convert(
+                state_value_metadata_result,
+                metadata_op,
+                legacy_creation_as_modification,
+            )?,
+            inner_ops,
+        })
     }
 
     fn convert(

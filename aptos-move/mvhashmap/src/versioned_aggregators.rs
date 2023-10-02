@@ -155,20 +155,12 @@ impl<K: Copy + Clone + Debug + Eq> VersionedValue<K> {
                     // Bypass stored in the estimate does not match the new entry.
                     (Estimate(_), _) => false,
 
-                    // The following two cases are acceptable uses to record a value after txn
-                    // materialization / commit, as the value will never change.
-                    //
-                    // value & value pattern is allowed to not be too restrictive to the caller.
-                    //
-                    // The patterns ensure to avoid panic in the unreachable branch below, and
-                    // returning 'true' ensures that the bypass enabling logic is not affected.
-                    (Value(val_l, None), Value(val_r, _)) if val_l == val_r => true,
-                    (Value(_, None), Apply(_)) => true,
-
                     // TODO: change to code_invariant_error
-                    (_, _) => unreachable!(
+                    (cur, new) => unreachable!(
                         "Replaced entry must be an Estimate, \
-			 or we should be recording the final committed value"
+			 or we should be recording the final committed value, {:?} to {:?}",
+                        cur,
+                        new,
                     ),
                 } {
                     // TODO: handle invalidation when we change read_estimate_deltas
@@ -179,6 +171,12 @@ impl<K: Copy + Clone + Debug + Eq> VersionedValue<K> {
             Entry::Vacant(v) => {
                 v.insert(CachePadded::new(entry));
             },
+        }
+    }
+
+    fn insert_final_value(&mut self, txn_idx: TxnIndex, value: AggregatorValue) {
+        if let None = self.versioned_map.insert(txn_idx, CachePadded::new(VersionEntry::Value(value, None))) {
+            unreachable!("Trying to commit value where change didn't exist before");
         }
     }
 
@@ -514,7 +512,9 @@ impl<K: Eq + Hash + Clone + Debug + Copy> VersionedAggregators<K> {
                 .expect("Value in commit at that transaction version needs to be in the HashMap");
 
             let new_entry = match &**entry_to_commit {
-                VersionEntry::Value(_, _) => None,
+                VersionEntry::Value(_, None) => None,
+                // remove delta in the commit
+                VersionEntry::Value(v, Some(_)) => Some(v.clone()),
                 VersionEntry::Apply(AggregatorDelta { delta }) => {
                     let prev_value = versioned_value.read_latest_committed_value(idx_to_commit)
                         .map_err(|e| CommitError::CodeInvariantError(format!("Cannot read latest committed value for Apply(AggregatorDelta) during commit: {:?}", e)))?;
@@ -525,10 +525,7 @@ impl<K: Eq + Hash + Clone + Debug + Copy> VersionedAggregators<K> {
                                 e
                             ))
                         })?;
-                        Some(VersionEntry::Value(
-                            AggregatorValue::Aggregator(new_value),
-                            None,
-                        ))
+                        Some(AggregatorValue::Aggregator(new_value))
                     } else {
                         return Err(CommitError::CodeInvariantError(
                             "Cannot apply delta to non-AggregatorValue::Aggregator".to_string(),
@@ -552,10 +549,7 @@ impl<K: Eq + Hash + Clone + Debug + Copy> VersionedAggregators<K> {
                                 e
                             ))
                         })?;
-                        Some(VersionEntry::Value(
-                            AggregatorValue::Snapshot(new_value),
-                            None,
-                        ))
+                        Some(AggregatorValue::Snapshot(new_value))
                     } else {
                         return Err(CommitError::CodeInvariantError(
                             "Cannot apply delta to non-AggregatorValue::Aggregator".to_string(),
@@ -575,7 +569,7 @@ impl<K: Eq + Hash + Clone + Debug + Copy> VersionedAggregators<K> {
             };
 
             if let Some(new_entry) = new_entry {
-                versioned_value.insert(idx_to_commit, new_entry);
+                versioned_value.insert_final_value(idx_to_commit, new_entry);
             }
         }
 
@@ -602,7 +596,7 @@ impl<K: Eq + Hash + Clone + Debug + Copy> VersionedAggregators<K> {
 
                     if let AggregatorValue::Snapshot(base) = prev_value {
                         let new_value = formula.apply_to(base);
-                        VersionEntry::Value(AggregatorValue::Derived(new_value), None)
+                        AggregatorValue::Derived(new_value)
                     } else {
                         return Err(CommitError::CodeInvariantError(
                             "Cannot apply delta to non-AggregatorValue::Aggregator".to_string(),
@@ -612,7 +606,7 @@ impl<K: Eq + Hash + Clone + Debug + Copy> VersionedAggregators<K> {
                 _ => unreachable!("We've only added derived values into derived_ids"),
             };
 
-            versioned_value.insert(idx_to_commit, new_entry);
+            versioned_value.insert_final_value(idx_to_commit, new_entry);
         }
 
         // Should be guaranteed, as this is the only function modifying the idx,

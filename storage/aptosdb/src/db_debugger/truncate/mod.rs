@@ -106,6 +106,30 @@ impl Cmd {
             overall_version, ledger_db_version, state_kv_db_version, state_merkle_db_version, self.target_version,
         );
 
+        if ledger_db
+            .metadata_db()
+            .get::<VersionDataSchema>(&version)?
+            .is_none()
+        {
+            println!("
+                Unable to truncate to target_version {target_version}, because there is no VersionData on that version."
+            );
+            println!(
+                "Trying to fallback to the largest valid version before version {target_version}."
+            );
+            let mut iter = ledger_db
+                .metadata_db()
+                .iter::<VersionDataSchema>(read_opts)?;
+            iter.seek_for_prev(&version)?;
+            match iter.next().transpose()? {
+                Some(previous_valid_version) => {
+                    println!("Fallback to version {previous_valid_version}.");
+                    self.target_version = previous_valid_version;
+                },
+                None => panic!("Unable to find a valid version."),
+            };
+        }
+
         // TODO(grao): We are using a brute force implementation for now. We might be able to make
         // it faster, since our data is append only.
         if self.target_version < state_merkle_db_version {

@@ -1650,10 +1650,6 @@ fn realistic_env_max_load_test(
         false
     };
 
-    // Determine if this is a long running test
-    let duration_secs = duration.as_secs();
-    let long_running = duration_secs >= 2400;
-
     // Calculate the max CPU threshold
     let max_cpu_threshold = if num_validators >= 10 { 30 } else { 70 };
 
@@ -1670,9 +1666,7 @@ fn realistic_env_max_load_test(
             inner_success_criteria: SuccessCriteria::new(if ha_proxy { 4600 } else { 5500 }),
         }))
         .with_genesis_helm_config_fn(Arc::new(move |helm_values| {
-            // Have single epoch change in land blocking, and a few on long-running
-            helm_values["chain"]["epoch_duration_secs"] =
-                (if long_running { 600 } else { 300 }).into();
+            helm_values["chain"]["epoch_duration_secs"] = 600.into();
         }))
         // First start higher gas-fee traffic, to not cause issues with TxnEmitter setup - account creation
         .with_emit_job(
